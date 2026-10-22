@@ -1,0 +1,7 @@
+# What a run or an install writes beside the shell.
+/state/
+/config/
+/bin/
+/share/
+STAGE_REVISION
+__pycache__/
