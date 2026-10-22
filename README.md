@@ -9,36 +9,42 @@ nested Solium on the desktop.
 
 - **Launcher**: every installed application in a paged grid, a dock, a status
   bar; a launch grows the window out of its icon, iPad style
-  (`mobile/effects/mobile-flight`).
-- **Gestures** (`mobile/lua/mobile/policy.lua`, `mobile/lua/kinetics.lua`): up
+  (`effects/mobile-flight`).
+- **Gestures** (`mobile/policy.lua`, `kinetics.lua`): up
   from the bottom centre and released quickly goes home, the window following the
   finger into its icon; held, it opens Recents. From the home screen the same
   swipe held opens Recents.
 - **Recents**: the open windows as cards, rounded by their present
-  (`mobile/effects/mobile-card`, which also draws their shadow); tap to open one,
+  (`effects/mobile-card`, which also draws their shadow); tap to open one,
   flick up to close it.
 - **Shade**: quick settings.
-- **Pane styles** (`mobile/qml/panes`): `mobile` (Recents' title above each card)
+- **Pane styles** (`qml/panes`): `mobile` (Recents' title above each card)
   and `mobile-flat` (an application on screen); the `icon` layer is what a window
   turns into as it flies to its launcher icon.
 
-Settings live in `mobile/lua/mobile/config.lua`. `SOLIUM_MOBILE_PROFILE` picks
+Settings live in `mobile/config.lua`. `SOLIUM_MOBILE_PROFILE` picks
 `phone`, `tablet` or `auto`; `SOLIUM_MOBILE_PACE` slows every flight evenly (1
 is the iPad's timing); `SOLIUM_MOBILE_FINGER=1` shows a touch overlay for
 testing.
 
 ## Install and run
 
-Build Solium (its `stage`), then:
+This directory *is* a Solium configuration, laid out as `~/.config/solium`:
+`init.lua` is the entry point, the Lua modules sit beside it (`mobile/`,
+`kinetics.lua`), scenes and pane styles are in `qml/`, effect folders in
+`effects/`. Solium needs nothing else to run it.
 
-    ./install.sh /path/to/solium/target/release/solium /path/to/solium [new-prefix]
+    ./install.sh
 
-It installs into a new private directory under `~/.local/opt/` and checks the
-configuration there. From a text console (not a desktop terminal, not SSH):
+links `${XDG_CONFIG_HOME:-~/.config}/solium` to this checkout (a configuration
+already there is moved aside), and checks it with `solium --check` when Solium
+is on `PATH`. Then start Solium as usual, `solium --tty` from a text console.
 
-    PREFIX/run-mobile.sh
+For a traced test session on a device:
 
-Each session's log and frame trace go to `PREFIX/state/runs/`.
+    tools/run-tty.sh [path/to/solium]
+
+writes the log and frame trace to `~/.local/state/lilium-mobile/runs/`.
 
 ## Developing
 

@@ -1,6 +1,6 @@
 -- Run with Lua 5.4 from this bundle's root. Exercises the combined policy,
 -- without a compositor, clients, or synthesized hardware input.
-package.path = './mobile/lua/?.lua;' .. package.path
+package.path = './?.lua;' .. package.path
 local handlers, kept, cards, captured, shown = {}, {}, {}, 0, {}
 local clients = {}
 for i=1,10 do clients[i]={id=i,monitor='test',app_id='app'..i,title='App '..i,w=1200,h=800} end
