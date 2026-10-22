@@ -8,6 +8,9 @@ Item {
     property string name: ""
     property color color: "white"
     property real stroke: 2.2
+    // Drawn solid rather than stroked: the shapes that are closed outlines
+    // (an aeroplane, a moon) read as the iPad's filled symbols.
+    readonly property bool solid: ["airplane", "moon"].indexOf(name) >= 0
     implicitWidth: 24; implicitHeight: 24
 
     Shape {
@@ -17,8 +20,9 @@ Item {
         transform: Scale { xScale: glyph.width / 24; yScale: glyph.height / 24 }
 
         ShapePath {
-            strokeColor: glyph.color; strokeWidth: glyph.stroke * 24 / Math.max(1, glyph.width)
-            fillColor: "transparent"; capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
+            strokeColor: glyph.solid ? "transparent" : glyph.color
+            strokeWidth: glyph.stroke * 24 / Math.max(1, glyph.width)
+            fillColor: glyph.solid ? glyph.color : "transparent"; capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
             PathSvg {
                 path: ({
                     // A crescent moon.
@@ -39,6 +43,12 @@ Item {
                     camera: "M 3.5 8 L 7.5 8 L 9 5.5 L 15 5.5 L 16.5 8 L 20.5 8 L 20.5 18.5 L 3.5 18.5 Z M 12 9.8 A 3.3 3.3 0 1 1 11.99 9.8",
                     // Three arcs and a dot: Wi-Fi.
                     wifi: "M 3 9.5 A 13 13 0 0 1 21 9.5 M 6.2 13 A 8.4 8.4 0 0 1 17.8 13 M 9.4 16.4 A 3.8 3.8 0 0 1 14.6 16.4 M 12 19.6 L 12 19.7",
+                    // An aeroplane, nose up and to the right.
+                    airplane: "M 12 3 C 13 3 13.3 4 13.3 5 L 13.3 9.5 L 20.5 13.5 L 20.5 15.5 L 13.3 13.3 L 13.3 18 L 15.5 19.8 L 15.5 21.3 L 12 20.3 L 8.5 21.3 L 8.5 19.8 L 10.7 18 L 10.7 13.3 L 3.5 15.5 L 3.5 13.5 L 10.7 9.5 L 10.7 5 C 10.7 4 11 3 12 3 Z",
+                    // The Bluetooth rune.
+                    bluetooth: "M 7.5 7.5 L 16.5 16 L 12 20 L 12 4 L 16.5 8 L 7.5 16.5",
+                    // A power button.
+                    power: "M 12 3.5 L 12 11.5 M 7.2 6.4 A 7.5 7.5 0 1 0 16.8 6.4",
                     // A circular arrow: reload.
                     reload: "M 19 12 A 7 7 0 1 1 16.5 6.6 M 17 3 L 17 7 L 13 7",
                 })[glyph.name] || ""

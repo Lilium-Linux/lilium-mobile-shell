@@ -195,25 +195,36 @@ end
 -- drawn, and kept until it changes.
 -- The Control Center (qml/mobile/ControlCenter.qml): its surface while it is
 -- open or moving, nil once it has closed. `over_app`: opened over an
--- application, whose own pixels are then what is blurred.
+-- application, whose own pixels are then what is blurred. `panel` is where its
+-- panel rests, in fractions of the screen, which the scene reports.
 local control = nil
 local control_release = 0
 local control_amount = -1
+local control_panel = { x = 0.7, y = 0.15, w = 0.25, h = 0.45 }
 
 -- Every effects setting the shell gives: the folders its presents name, the
 -- backdrop's layers (the wallpaper and the launcher), and while the Control
--- Center is open the blur behind it at `amount`, 0 to 1. Re-sent as the
+-- Center is open the blur under its panel at `amount`, 0 to 1. Re-sent as the
 -- amount moves; Solium keeps every capture across a re-send that changes a
 -- param alone (#305), so each step only runs the blur again.
 local function shell_effects(amount)
     local rules = {}
     if control and amount > 0 then
+        local whole, area = dimensions()
+        local panel = control_panel
         if control.over_app then
+            -- The panel's rectangle in the application's own pixels: it fills
+            -- the area below the status bar.
+            local function across(v) return (v * whole.w + whole.x - area.x) / area.w end
+            local function down(v) return (v * whole.h + whole.y - area.y) / area.h end
             rules[1] = { match = { fullscreen = false }, part = "client", slot = "replace",
-                effect = { "cc-blur", amount = amount } }
+                effect = { "cc-blur", amount = amount, mask_x = across(panel.x), mask_y = down(panel.y),
+                    mask_w = panel.w * whole.w / area.w, mask_h = panel.h * whole.h / area.h,
+                    soft = 56 / area.w } }
         else
             rules[1] = { match = { surface = "mobile-control" }, part = "surface:mobile-control",
-                slot = "behind", effect = { "cc-fade", amount = amount } }
+                slot = "behind", effect = { "cc-fade", amount = amount, mask_x = panel.x,
+                    mask_y = panel.y, mask_w = panel.w, mask_h = panel.h, soft = 56 / whole.w } }
         end
     end
     sol.effects({ rules = rules, load = { "mobile-flight", "mobile-card", "cc-blur", "cc-fade" },
@@ -248,54 +259,135 @@ local function control_show(properties)
         on = "primary", interactive = true, properties = properties })
 end
 
--- The status the Control Center shows above its panel: the battery's charge
--- and whether it charges, and whether a wireless link is up. Read from sysfs
--- when it opens, never per frame; a device without them shows neither.
-local function read_command(command)
-    local ok, pipe = pcall(io.popen, command)
-    if not ok or not pipe then return "" end
-    local text = pipe:read("*a") or ""
-    pipe:close()
+-- The shell's chrome (status bar, dock, dim) with some of its properties
+-- changed, and nothing laid out again: what a slider or the status needs.
+local function chrome_update(properties)
+    sol.surface("mobile-shell", { scene = "mobile/Shell.qml", layer = "overlay", on = "primary",
+        interactive = true, reserve = { top = config.status, bottom = config.navigation },
+        properties = properties })
+end
+
+-- What the device says: read where it is quick, never on a gesture's path.
+-- The battery and the backlight are sysfs files, read at once. Wi-Fi,
+-- Bluetooth and the volume take commands that can stall for a tenth of a
+-- second, so a command in the background writes them to a file
+-- (`refresh_status`) and the shell reads the file.
+local function read_file(path)
+    local file = io.open(path)
+    if not file then return nil end
+    local text = file:read("*a")
+    file:close()
     return text
 end
 
-local function device_status()
-    local status = { battery = -1, charging = false, wifi = false }
-    local battery = read_command("cat /sys/class/power_supply/BAT*/capacity /sys/class/power_supply/BAT*/status 2>/dev/null")
-    local level, state_word = battery:match("(%d+)%s+(%a+)")
-    if level then
-        status.battery = tonumber(level)
-        status.charging = state_word == "Charging" or state_word == "Full"
+local function first_line(command)
+    local pipe = io.popen(command)
+    if not pipe then return nil end
+    local line = pipe:read("*l")
+    pipe:close()
+    return line
+end
+
+-- The battery and the backlight, each found once.
+local battery_dir = first_line("ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1")
+local backlight_dir = first_line("ls -d /sys/class/backlight/* 2>/dev/null | head -1")
+local status_file = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/lilium-mobile-status"
+local status = { wifi = false, linked = false, bluetooth = false, volume = nil }
+local airplane = false
+
+-- A command the shell runs on the device: the volume, the backlight, a
+-- radio, a screenshot. With LILIUM_MOBILE_DRY_RUN=1, logged and not run, so a
+-- nested test on a desktop leaves that desktop's audio, screen and radios
+-- alone.
+local dry_run = os.getenv("LILIUM_MOBILE_DRY_RUN") == "1"
+local function run(...)
+    if dry_run then
+        sol.log("lilium-mobile dry run: " .. table.concat({ ... }, " "))
+        return
     end
-    status.wifi = read_command("cat /sys/class/net/wl*/operstate 2>/dev/null"):find("up") ~= nil
-    return status
+    sol.run(...)
+end
+
+local function refresh_status()
+    run("sh", "-c", [[
+w=$(nmcli radio wifi 2>/dev/null)
+l=$(nmcli -t -f TYPE,STATE device 2>/dev/null | grep -c '^wifi:connected$')
+b=$(bluetoothctl show 2>/dev/null | awk '/Powered:/ {print $2; exit}')
+v=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | awk '{print $2}')
+printf 'wifi=%s
+linked=%s
+bluetooth=%s
+volume=%s
+' "$w" "$l" "$b" "$v" > "$0.tmp" && mv "$0.tmp" "$0"
+]], status_file)
+end
+
+local function read_status()
+    local text = read_file(status_file)
+    if not text then return end
+    local values = {}
+    for key, value in text:gmatch("(%w+)=([^\n]*)") do values[key] = value end
+    status.wifi = values.wifi == "enabled"
+    status.linked = (tonumber(values.linked) or 0) > 0
+    status.bluetooth = values.bluetooth == "yes"
+    status.volume = tonumber(values.volume)
+end
+
+local function device()
+    local battery, charging = -1, false
+    if battery_dir then
+        battery = tonumber(read_file(battery_dir .. "/capacity")) or -1
+        local state_word = read_file(battery_dir .. "/status") or ""
+        charging = state_word:find("Charging") ~= nil or state_word:find("Full") ~= nil
+    end
+    local brightness = nil
+    if backlight_dir then
+        local now = tonumber(read_file(backlight_dir .. "/brightness"))
+        local most = tonumber(read_file(backlight_dir .. "/max_brightness"))
+        if now and most and most > 0 then brightness = now / most end
+    end
+    return { battery = battery, charging = charging, brightness = brightness }
 end
 
 local function control_settings()
     local _, _, tablet = dimensions()
     local count = 0
     for _ in pairs(sol.windows()) do count = count + 1 end
+    local here = device()
     return { pace = pace, reduceMotion = state.settings.reduceMotion, statusHeight = config.status,
-        tablet = tablet, brightness = state.settings.brightness, volume = state.settings.volume or 0.5,
-        darkAppearance = state.settings.dark, splitActive = #state.split == 2, taskCount = count }
+        tablet = tablet, darkAppearance = state.settings.dark, splitActive = #state.split == 2,
+        taskCount = count, battery = here.battery, charging = here.charging,
+        brightness = (control and control.brightness) or here.brightness
+            or (state.settings.brightness - 0.25) / 0.75,
+        volume = status.volume or state.settings.volume or 0.5,
+        wifi = status.wifi, wifiLinked = status.linked, bluetooth = status.bluetooth, airplane = airplane }
+end
+
+-- The status bar's Wi-Fi and battery; hidden while the Control Center
+-- carries its own copy of them, which starts where this one is.
+function mobile.apply_status(hidden)
+    local here = device()
+    chrome_update({ battery = here.battery, charging = here.charging, wifiLinked = status.linked,
+        statusHidden = hidden and true or false })
 end
 
 local function control_begin()
     if control then return end
     control = { over_app = state.page == "app" }
     control_amount = -1
+    read_status()
+    refresh_status()
     local properties = control_settings()
-    local device = device_status()
-    properties.battery, properties.charging, properties.wifi = device.battery, device.charging, device.wifi
     properties.dragging, properties.progress, properties.target = true, 0, 1
     control_show(properties)
+    mobile.apply_status(true)
 end
 
 -- The finger pulling it down: `progress` 0 closed to 1 open, rubber-banded
 -- past 1.
 local function control_drag(progress)
     control_begin()
-    local shown = progress <= 1 and progress or 1 + (progress - 1) * 0.2
+    local shown = progress <= 1 and progress or 1 + (progress - 1) * 0.25
     control_show({ dragging = true, progress = math.max(0, shown) })
 end
 
@@ -316,10 +408,26 @@ local function control_gone()
     control_amount = -1
     sol.surface("mobile-control", false)
     shell_effects(0)
+    mobile.apply_status(false)
     if state.pending_screenshot then
         state.pending_screenshot = false
-        sol.spawn("sh", "-c", 'mkdir -p "$HOME/Pictures" && grim "$HOME/Pictures/Screenshot-$(date +%Y%m%d-%H%M%S).png"')
+        run("sh", "-c", 'mkdir -p "$HOME/Pictures" && grim "$HOME/Pictures/Screenshot-$(date +%Y%m%d-%H%M%S).png"')
     end
+    if state.pending_suspend then
+        state.pending_suspend = false
+        run("systemctl", "suspend")
+    end
+end
+
+-- The backlight through logind, which lets the session's own user set it.
+local function set_backlight(value)
+    local most = tonumber(read_file(backlight_dir .. "/max_brightness")) or 0
+    if most <= 0 then return end
+    local level = math.max(math.floor(most * 0.02), math.floor(most * value + 0.5))
+    run("sh", "-c", [[
+session=$(busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager GetSession s "$XDG_SESSION_ID" 2>/dev/null | cut -d'"' -f2)
+[ -n "$session" ] && busctl call org.freedesktop.login1 "$session" org.freedesktop.login1.Session SetBrightness ssu backlight "$0" "$1"
+]], backlight_dir:match("[^/]+$"), tostring(level))
 end
 
 local function control_act(action, data)
@@ -328,19 +436,52 @@ local function control_act(action, data)
         -- The blur follows the scene's own progress, in 64 steps.
         local amount = math.floor(math.max(0, math.min(1, tonumber(data.value) or 0)) * 64 + 0.5) / 64
         if control and amount ~= control_amount then control_amount = amount; shell_effects(amount) end
+    elseif action == "mobile.control.geometry" then
+        control_panel = { x = tonumber(data.x) or 0.7, y = tonumber(data.y) or 0.15,
+            w = tonumber(data.w) or 0.25, h = tonumber(data.h) or 0.45 }
+        if control and control_amount > 0 then shell_effects(control_amount) end
+    elseif action == "mobile.control.refresh" then
+        read_status()
+        if control then control_show(control_settings()) end
+        mobile.apply_status(control ~= nil)
     elseif action == "mobile.control.closed" then control_gone()
     elseif action == "mobile.control.close" then control_settle(0, 0)
-    elseif action == "mobile.control.setting" then
-        if data.key == "volume" then
-            local volume = math.max(0, math.min(1, tonumber(data.value) or 0))
-            state.settings.volume = volume
-            sol.spawn("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", string.format("%d%%", math.floor(volume * 100 + 0.5)))
+    elseif action == "mobile.control.brightness" then
+        local value = math.max(0, math.min(1, tonumber(data.value) or 0))
+        if backlight_dir then set_backlight(value)
+        else mobile.setting({ key = "brightness", value = 0.25 + 0.75 * value }) end
+        control.brightness = value
+        control_show({ brightness = value })
+    elseif action == "mobile.control.volume" then
+        local volume = math.max(0, math.min(1, tonumber(data.value) or 0))
+        status.volume = volume
+        run("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", string.format("%.2f", volume))
+        control_show({ volume = volume })
+    elseif action == "mobile.control.wifi" then
+        status.wifi = not status.wifi
+        run("nmcli", "radio", "wifi", status.wifi and "on" or "off")
+        control_show({ wifi = status.wifi })
+    elseif action == "mobile.control.bluetooth" then
+        status.bluetooth = not status.bluetooth
+        run("bluetoothctl", "power", status.bluetooth and "on" or "off")
+        control_show({ bluetooth = status.bluetooth })
+    elseif action == "mobile.control.airplane" then
+        airplane = not airplane
+        if airplane then
+            run("sh", "-c", "nmcli radio all off; bluetoothctl power off")
         else
-            mobile.setting(data)
+            run("sh", "-c", "nmcli radio wifi on; bluetoothctl power on")
         end
+        status.wifi, status.bluetooth = not airplane, not airplane
+        control_show({ airplane = airplane, wifi = status.wifi, bluetooth = status.bluetooth })
+    elseif action == "mobile.control.setting" then
+        mobile.setting(data)
         control_show(control_settings())
     elseif action == "mobile.control.screenshot" then
         state.pending_screenshot = true
+        control_settle(0, 0)
+    elseif action == "mobile.control.power" then
+        state.pending_suspend = true
         control_settle(0, 0)
     elseif action == "mobile.control.home" then control_settle(0, 0); mobile.home()
     elseif action == "mobile.control.recents" then control_settle(0, 0); mobile.recents()
@@ -544,6 +685,8 @@ function mobile.apply(motion)
         statusHeight = config.status, navigationHeight = config.navigation, homeRequest = home_serial,
         shadeBackground = state.previous, brightness = state.settings.brightness,
         darkAppearance = state.settings.dark, reduceMotion = state.settings.reduceMotion,
+        battery = device().battery, charging = device().charging, wifiLinked = status.linked,
+        statusHidden = control ~= nil,
     }
     -- The icon grid is drawn below windows, so a window dragged home stays in
     -- front of it; the rest of the shell is drawn above them.
@@ -706,7 +849,11 @@ end
 -- motion.
 function mobile.setting(data)
     if data.key == "brightness" then
+        -- Drawn as a dim over the screen where there is no backlight to set:
+        -- the chrome alone changes, nothing is laid out again.
         state.settings.brightness = math.max(0.25, math.min(1, tonumber(data.value) or 1))
+        chrome_update({ brightness = state.settings.brightness })
+        return
     elseif data.key == "dark" then state.settings.dark = not state.settings.dark
     elseif data.key == "reduceMotion" then state.settings.reduceMotion = not state.settings.reduceMotion
     end
@@ -1107,5 +1254,9 @@ sol.on("touch",function(e)
     end
     finger(e)
 end)
+
+-- Wi-Fi, Bluetooth and the volume, read in the background from the start, so
+-- the first pull already has them.
+refresh_status()
 
 return mobile
