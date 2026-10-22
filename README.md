@@ -43,7 +43,8 @@ Each session's log and frame trace go to `PREFIX/state/runs/`.
 ## Developing
 
 - `tests/policy.lua`: the policy against a stub `sol`, without a compositor:
-  `lua tests/policy.lua` from this directory.
+  `lua5.4 tests/policy.lua` from this directory (Lua 5.4, as Solium embeds;
+  LuaJIT is 5.1 and lacks `math.tointeger`).
 - `tools/`: scripted touch sequences for a nested Solium (`SOLIUM_TOUCH_AT`):
   `slowdemo.py` (open and send home), `recentsdemo.py` (Recents and closing),
   `cardtest.py` (cards, opening one, the home-screen swipe). Each prints the
