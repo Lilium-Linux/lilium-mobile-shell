@@ -193,10 +193,37 @@ end
 -- Recents and under the finger, mobile-flight to and from its icon), so a
 -- window is cut round only while it is drawn as a card, at the size it is
 -- drawn, and kept until it changes.
+-- The Control Center (qml/mobile/ControlCenter.qml): its surface while it is
+-- open or moving, nil once it has closed. `over_app`: opened over an
+-- application, whose own pixels are then what is blurred.
+local control = nil
+local control_release = 0
+local control_amount = -1
+
+-- Every effects setting the shell gives: the folders its presents name, the
+-- backdrop's layers (the wallpaper and the launcher), and while the Control
+-- Center is open the blur behind it at `amount`, 0 to 1. Re-sent as the
+-- amount moves; Solium keeps every capture across a re-send that changes a
+-- param alone (#305), so each step only runs the blur again.
+local function shell_effects(amount)
+    local rules = {}
+    if control and amount > 0 then
+        if control.over_app then
+            rules[1] = { match = { fullscreen = false }, part = "client", slot = "replace",
+                effect = { "cc-blur", amount = amount } }
+        else
+            rules[1] = { match = { surface = "mobile-control" }, part = "surface:mobile-control",
+                slot = "behind", effect = { "cc-fade", amount = amount } }
+        end
+    end
+    sol.effects({ rules = rules, load = { "mobile-flight", "mobile-card", "cc-blur", "cc-fade" },
+        xray = { layers = { "background", "bottom" } } })
+end
+
 local function load_effects()
     if effects_loaded then return end
     effects_loaded = true
-    sol.effects({ rules = {}, load = { "mobile-flight", "mobile-card" } })
+    shell_effects(0)
 end
 
 -- A window drawn at `rect` as a card with `radius` logical pixels of corner
@@ -212,6 +239,117 @@ local function card_shape(rect, area, radius, shadow)
     local over = area.w / math.max(rect.w, 1)
     return { effect = "mobile-card", to = { x = rect.x, y = rect.y, w = rect.w, h = rect.h },
         radius = radius * scale * over, px = over, dpr = scale, shadow = shadow or 1 }
+end
+
+-- The Control Center's surface, with what it shows. Only what changed need be
+-- given: a key left out keeps the value the scene last had.
+local function control_show(properties)
+    sol.surface("mobile-control", { scene = "mobile/ControlCenter.qml", layer = "overlay",
+        on = "primary", interactive = true, properties = properties })
+end
+
+-- The status the Control Center shows above its panel: the battery's charge
+-- and whether it charges, and whether a wireless link is up. Read from sysfs
+-- when it opens, never per frame; a device without them shows neither.
+local function read_command(command)
+    local ok, pipe = pcall(io.popen, command)
+    if not ok or not pipe then return "" end
+    local text = pipe:read("*a") or ""
+    pipe:close()
+    return text
+end
+
+local function device_status()
+    local status = { battery = -1, charging = false, wifi = false }
+    local battery = read_command("cat /sys/class/power_supply/BAT*/capacity /sys/class/power_supply/BAT*/status 2>/dev/null")
+    local level, state_word = battery:match("(%d+)%s+(%a+)")
+    if level then
+        status.battery = tonumber(level)
+        status.charging = state_word == "Charging" or state_word == "Full"
+    end
+    status.wifi = read_command("cat /sys/class/net/wl*/operstate 2>/dev/null"):find("up") ~= nil
+    return status
+end
+
+local function control_settings()
+    local _, _, tablet = dimensions()
+    local count = 0
+    for _ in pairs(sol.windows()) do count = count + 1 end
+    return { pace = pace, reduceMotion = state.settings.reduceMotion, statusHeight = config.status,
+        tablet = tablet, brightness = state.settings.brightness, volume = state.settings.volume or 0.5,
+        darkAppearance = state.settings.dark, splitActive = #state.split == 2, taskCount = count }
+end
+
+local function control_begin()
+    if control then return end
+    control = { over_app = state.page == "app" }
+    control_amount = -1
+    local properties = control_settings()
+    local device = device_status()
+    properties.battery, properties.charging, properties.wifi = device.battery, device.charging, device.wifi
+    properties.dragging, properties.progress, properties.target = true, 0, 1
+    control_show(properties)
+end
+
+-- The finger pulling it down: `progress` 0 closed to 1 open, rubber-banded
+-- past 1.
+local function control_drag(progress)
+    control_begin()
+    local shown = progress <= 1 and progress or 1 + (progress - 1) * 0.2
+    control_show({ dragging = true, progress = math.max(0, shown) })
+end
+
+-- Let go, or tapped open: the scene's spring takes it to `target` from
+-- `velocity` (progress per second, the finger's own).
+local function control_settle(target, velocity)
+    control_begin()
+    control.target = target
+    control_release = control_release + 1
+    control_show({ dragging = false, target = target, releaseVelocity = velocity or 0,
+        release = control_release })
+end
+
+function mobile.control_open() control_settle(1, 0) end
+
+local function control_gone()
+    control = nil
+    control_amount = -1
+    sol.surface("mobile-control", false)
+    shell_effects(0)
+    if state.pending_screenshot then
+        state.pending_screenshot = false
+        sol.spawn("sh", "-c", 'mkdir -p "$HOME/Pictures" && grim "$HOME/Pictures/Screenshot-$(date +%Y%m%d-%H%M%S).png"')
+    end
+end
+
+local function control_act(action, data)
+    data = type(data) == "table" and data or {}
+    if action == "mobile.control.progress" then
+        -- The blur follows the scene's own progress, in 64 steps.
+        local amount = math.floor(math.max(0, math.min(1, tonumber(data.value) or 0)) * 64 + 0.5) / 64
+        if control and amount ~= control_amount then control_amount = amount; shell_effects(amount) end
+    elseif action == "mobile.control.closed" then control_gone()
+    elseif action == "mobile.control.close" then control_settle(0, 0)
+    elseif action == "mobile.control.setting" then
+        if data.key == "volume" then
+            local volume = math.max(0, math.min(1, tonumber(data.value) or 0))
+            state.settings.volume = volume
+            sol.spawn("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", string.format("%d%%", math.floor(volume * 100 + 0.5)))
+        else
+            mobile.setting(data)
+        end
+        control_show(control_settings())
+    elseif action == "mobile.control.screenshot" then
+        state.pending_screenshot = true
+        control_settle(0, 0)
+    elseif action == "mobile.control.home" then control_settle(0, 0); mobile.home()
+    elseif action == "mobile.control.recents" then control_settle(0, 0); mobile.recents()
+    elseif action == "mobile.control.split" then
+        control_settle(0, 0)
+        if #state.split == 2 then state.split = {}; mobile.apply()
+        elseif state.active ~= 0 then mobile.recents() end
+    elseif action == "mobile.control.reload" then sol.reload()
+    end
 end
 
 local function hide(window, whole)
@@ -564,6 +702,17 @@ local function reopen(window, key)
     end
 end
 
+-- A setting from the shade or the Control Center: brightness, appearance,
+-- motion.
+function mobile.setting(data)
+    if data.key == "brightness" then
+        state.settings.brightness = math.max(0.25, math.min(1, tonumber(data.value) or 1))
+    elseif data.key == "dark" then state.settings.dark = not state.settings.dark
+    elseif data.key == "reduceMotion" then state.settings.reduceMotion = not state.settings.reduceMotion
+    end
+    mobile.apply(quick_motion)
+end
+
 local function act(action, data)
     data = type(data) == "table" and data or {}
     local id = math.tointeger(tonumber(data.id))
@@ -596,8 +745,8 @@ local function act(action, data)
     elseif action == "mobile.recents" then mobile.recents()
     elseif action == "mobile.apps" then state.page = "apps"; mobile.apply()
     elseif action == "mobile.shade" then
-        if state.page == "shade" then mobile.back()
-        else state.previous = state.page; state.page = "shade"; mobile.apply() end
+        -- The status bar's tap: the Control Center, as the corner pull opens it.
+        mobile.control_open()
     elseif action == "mobile.select" and id then mobile.select(id)
     elseif action == "mobile.previous" then mobile.cycle(-1)
     elseif action == "mobile.next" then mobile.cycle(1)
@@ -666,12 +815,7 @@ local function act(action, data)
             mobile.apply(paced({ duration = 320, easing = "outCubic" }))
         else mobile.cycle(math.floor(-offset / stride + 0.5)) end
     elseif action == "mobile.setting" then
-        if data.key == "brightness" then
-            state.settings.brightness = math.max(0.25, math.min(1, tonumber(data.value) or 1))
-        elseif data.key == "dark" then state.settings.dark = not state.settings.dark
-        elseif data.key == "reduceMotion" then state.settings.reduceMotion = not state.settings.reduceMotion
-        end
-        mobile.apply(quick_motion)
+        mobile.setting(data)
     elseif action == "mobile.reload" then sol.reload()
     elseif action == "mobile.unsplit" then state.split = {}; mobile.apply()
     elseif action == "mobile.ratio" then
@@ -680,7 +824,8 @@ local function act(action, data)
 end
 
 sol.on("surface", function(surface, action, data)
-    if surface == "mobile-shell" or surface == "mobile-home" then act(action, data) end
+    if surface == "mobile-shell" or surface == "mobile-home" then act(action, data)
+    elseif surface == "mobile-control" then control_act(action, data) end
 end)
 sol.on("open", function(id)
     local _, by_id = windows()
@@ -803,6 +948,15 @@ local function release(e,cancelled)
     g.k.vx=vx;g.k.vy=vy
     sol.log(string.format("TOUCH_RELEASE kind=%s vx=%.2f vy=%.2f ax=%.2f ay=%.2f cancel=%s",
         g.kind,vx,vy,g.k.ax,g.k.ay,tostring(cancelled)))
+    if g.kind=="control" then
+        -- Open past a third of the way or flung down; shut when flung up.
+        local _,area=dimensions()
+        local p=(e.y-g.y)/(area.h*0.42)
+        local pv=vy/(area.h*0.42)
+        local open=not cancelled and pv>-1.2 and (p>0.3 or pv>1.2)
+        control_settle(open and 1 or 0,pv)
+        return
+    end
     if g.kind=="home-swipe" then
         local _,area=dimensions()
         local p=(g.y-e.y)/(area.h*touch_config.travel)
@@ -899,7 +1053,11 @@ sol.on("touch",function(e)
         local kind
         local at_handle=e.y>=whole.y+whole.h-touch_config.edge
             and math.abs(e.x-(whole.x+whole.w/2))<=touch_config.handle_width/2
-        if state.page=="app" and at_handle then kind="navigation"
+        -- The top edge's right half pulls the Control Center down, from any
+        -- page but Recents.
+        local at_corner=e.y<whole.y+math.max(24,config.status) and e.x>whole.x+whole.w*0.55
+        if at_corner and not control and state.page~="recents" and state.page~="shade" then kind="control"
+        elseif state.page=="app" and at_handle then kind="navigation"
         -- From the home screen the same swipe, held, opens Recents; there is
         -- no window to follow, so nothing moves until it is let go.
         elseif (state.page=="home" or state.page=="apps") and at_handle then kind="home-swipe"
@@ -908,7 +1066,8 @@ sol.on("touch",function(e)
             sol.touch(e.slot,{action="capture"})
             gesture={slot=e.slot,kind=kind,x=e.x,y=e.y,k=K.new(touch_config)}
             gesture.k:sample(e.time,e.x,e.y)
-            if kind=="navigation" then nav={p=0,raw=0,x0=e.x,y0=e.y,fx=e.x,fy=e.y};mobile.apply({duration=0})
+            if kind=="control" then control_drag(0)
+            elseif kind=="navigation" then nav={p=0,raw=0,x0=e.x,y0=e.y,fx=e.x,fy=e.y};mobile.apply({duration=0})
             else
                 reset_swipe()
                 local top
@@ -924,6 +1083,10 @@ sol.on("touch",function(e)
             local g=gesture
             g.k:sample(e.time,e.x,e.y)
             if g.kind=="home-swipe" then finger(e);return end
+            if g.kind=="control" then
+                local _,area=dimensions()
+                control_drag((e.y-g.y)/(area.h*0.42));finger(e);return
+            end
             local _,area=dimensions()
             if g.kind=="navigation" then
                 nav.fx,nav.fy=e.x,e.y

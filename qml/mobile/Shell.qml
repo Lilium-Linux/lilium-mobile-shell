@@ -232,65 +232,6 @@ Item {
             // Visual dimming only; no input item, so it never intercepts a client.
         }
         Rectangle {
-            anchors.fill: parent; color: "#121629"
-            opacity: root.page === "shade" ? 0.96 : 0
-            visible: opacity > 0.001
-            Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 260 } }
-            MouseArea { anchors.fill: parent; enabled: root.page === "shade"; onClicked: root.send("back") }
-        }
-        Item {
-            id: center
-            width: Math.min(root.width - 36, 380)
-            height: Math.min(root.height - root.statusHeight - root.navigationHeight - 20, 570)
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: root.page === "shade" ? root.statusHeight + 12 : -height - 20
-            opacity: root.page === "shade" ? 1 : 0
-            visible: opacity > 0.001
-            enabled: root.page === "shade"
-            Behavior on y { NumberAnimation { duration: root.reduceMotion ? 0 : 360; easing.type: Easing.OutCubic } }
-            Behavior on opacity { NumberAnimation { duration: root.reduceMotion ? 0 : 240 } }
-            Flickable {
-                anchors.fill: parent; contentHeight: centerContent.height + 10; clip: true
-                Column {
-                    id: centerContent
-                    width: parent.width; spacing: 12
-                    Text { text: "Control Center"; color: "white"; font { pixelSize: 28; weight: Font.DemiBold } height: 52; verticalAlignment: Text.AlignVCenter }
-                    Grid {
-                        width: parent.width; columns: 2; spacing: 12
-                        ControlTile { width: (parent.width - 12) / 2; height: 108; glyph: "◐"; label: "Appearance"; detail: root.darkAppearance ? "Dark" : "Light"; active: !root.darkAppearance; onTriggered: root.send("setting", { key: "dark" }) }
-                        ControlTile { width: (parent.width - 12) / 2; height: 108; glyph: "◈"; label: "Motion"; detail: root.reduceMotion ? "Reduced" : "Full"; active: !root.reduceMotion; onTriggered: root.send("setting", { key: "reduceMotion" }) }
-                        ControlTile { width: (parent.width - 12) / 2; height: 108; glyph: "▣"; label: "App switcher"; detail: root.taskCount + " running"; onTriggered: root.send("recents") }
-                        ControlTile { width: (parent.width - 12) / 2; height: 108; glyph: "⌂"; label: "Home Screen"; detail: "Applications"; onTriggered: root.send("home") }
-                    }
-                    Rectangle {
-                        width: parent.width; height: 92; radius: 23; color: "#b52e354a"
-                        Text { x: 18; y: 12; text: "☀  Brightness"; color: "white"; font { pixelSize: 14; weight: Font.DemiBold } }
-                        Rectangle {
-                            id: brightnessTrack
-                            x: 18; y: 48; width: parent.width - 36; height: 25; radius: 12; color: "#4c5265"
-                            Rectangle { width: parent.width * ((root.brightness - 0.25) / 0.75); height: parent.height; radius: 12; color: "#f2f2f7" }
-                            MouseArea {
-                                anchors { fill: parent; margins: -8 }
-                                function adjust(x) { root.send("setting", { key: "brightness", value: 0.25 + 0.75 * Math.max(0, Math.min(1, (x - 8) / brightnessTrack.width)) }) }
-                                onPressed: mouse => adjust(mouse.x)
-                                onPositionChanged: mouse => { if (pressed) adjust(mouse.x) }
-                            }
-                        }
-                    }
-                    Row {
-                        spacing: 12
-                        ControlTile { width: (centerContent.width - 12) / 2; height: 100; glyph: root.tablet ? "◫" : "↻"; label: root.tablet ? (root.splitActive ? "Single app" : "Split screen") : "Reload shell"; detail: root.tablet ? "Multitasking" : "Refresh"; onTriggered: { if (!root.tablet) root.send("reload"); else if (root.splitActive) { root.send("unsplit"); root.send("back") } else { root.send("recents"); root.send("split", { id: root.activeId }) } } }
-                        ControlTile { width: (centerContent.width - 12) / 2; height: 100; glyph: "×"; label: "Close"; detail: "Control Center"; onTriggered: root.send("back") }
-                    }
-                }
-            }
-            Rectangle {
-                anchors { horizontalCenter: parent.horizontalCenter; top: parent.bottom; topMargin: 10 }
-                width: 36; height: 4; radius: 2; color: "#aaffffff"
-            }
-        }
-
-        Rectangle {
             id: navigation
             visible: root.navigationHeight > 0
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
