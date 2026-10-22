@@ -10,7 +10,7 @@ Item {
     property real stroke: 2.2
     // Drawn solid rather than stroked: the shapes that are closed outlines
     // (an aeroplane, a moon) read as the iPad's filled symbols.
-    readonly property bool solid: ["airplane", "moon"].indexOf(name) >= 0
+    readonly property bool solid: ["airplane", "moon", "play", "pause", "previous", "next"].indexOf(name) >= 0
     implicitWidth: 24; implicitHeight: 24
 
     Shape {
@@ -49,6 +49,12 @@ Item {
                     bluetooth: "M 7.5 7.5 L 16.5 16 L 12 20 L 12 4 L 16.5 8 L 7.5 16.5",
                     // A power button.
                     power: "M 12 3.5 L 12 11.5 M 7.2 6.4 A 7.5 7.5 0 1 0 16.8 6.4",
+                    // Media: play, pause, previous, next; a note.
+                    play: "M 7 4.5 L 19.5 12 L 7 19.5 Z",
+                    pause: "M 6.5 5 L 10 5 L 10 19 L 6.5 19 Z M 14 5 L 17.5 5 L 17.5 19 L 14 19 Z",
+                    previous: "M 12 6 L 12 18 L 4 12 Z M 20 6 L 20 18 L 12 12 Z",
+                    next: "M 12 6 L 12 18 L 20 12 Z M 4 6 L 4 18 L 12 12 Z",
+                    note: "M 9 17.5 L 9 6 L 19 4 L 19 15.5 M 9 17.5 A 2.5 2 0 1 1 8.99 17.5 M 19 15.5 A 2.5 2 0 1 1 18.99 15.5",
                     // A circular arrow: reload.
                     reload: "M 19 12 A 7 7 0 1 1 16.5 6.6 M 17 3 L 17 7 L 13 7",
                 })[glyph.name] || ""

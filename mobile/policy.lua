@@ -200,7 +200,7 @@ end
 local control = nil
 local control_release = 0
 local control_amount = -1
-local control_panel = { x = 0.7, y = 0.15, w = 0.25, h = 0.45 }
+local control_panel = { x = 0.7, y = 0, w = 0.3, h = 1, soft = 0.2 }
 
 -- Every effects setting the shell gives: the folders its presents name, the
 -- backdrop's layers (the wallpaper and the launcher), and while the Control
@@ -220,11 +220,11 @@ local function shell_effects(amount)
             rules[1] = { match = { fullscreen = false }, part = "client", slot = "replace",
                 effect = { "cc-blur", amount = amount, mask_x = across(panel.x), mask_y = down(panel.y),
                     mask_w = panel.w * whole.w / area.w, mask_h = panel.h * whole.h / area.h,
-                    soft = 56 / area.w } }
+                    soft = (panel.soft or 0.2) * whole.w / area.w } }
         else
             rules[1] = { match = { surface = "mobile-control" }, part = "surface:mobile-control",
                 slot = "behind", effect = { "cc-fade", amount = amount, mask_x = panel.x,
-                    mask_y = panel.y, mask_w = panel.w, mask_h = panel.h, soft = 56 / whole.w } }
+                    mask_y = panel.y, mask_w = panel.w, mask_h = panel.h, soft = panel.soft or 0.2 } }
         end
     end
     sol.effects({ rules = rules, load = { "mobile-flight", "mobile-card", "cc-blur", "cc-fade" },
@@ -292,7 +292,8 @@ end
 local battery_dir = first_line("ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1")
 local backlight_dir = first_line("ls -d /sys/class/backlight/* 2>/dev/null | head -1")
 local status_file = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/lilium-mobile-status"
-local status = { wifi = false, linked = false, bluetooth = false, volume = nil }
+local status = { wifi = false, linked = false, bluetooth = false, volume = nil,
+    media = "", title = "", artist = "" }
 local airplane = false
 
 -- A command the shell runs on the device: the volume, the backlight, a
@@ -314,11 +315,11 @@ w=$(nmcli radio wifi 2>/dev/null)
 l=$(nmcli -t -f TYPE,STATE device 2>/dev/null | grep -c '^wifi:connected$')
 b=$(bluetoothctl show 2>/dev/null | awk '/Powered:/ {print $2; exit}')
 v=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | awk '{print $2}')
-printf 'wifi=%s
-linked=%s
-bluetooth=%s
-volume=%s
-' "$w" "$l" "$b" "$v" > "$0.tmp" && mv "$0.tmp" "$0"
+m=$(playerctl status 2>/dev/null)
+t=$(playerctl metadata title 2>/dev/null | tr -d '\n')
+a=$(playerctl metadata artist 2>/dev/null | tr -d '\n')
+printf 'wifi=%s\nlinked=%s\nbluetooth=%s\nvolume=%s\nmedia=%s\ntitle=%s\nartist=%s\n' \
+    "$w" "$l" "$b" "$v" "$m" "$t" "$a" > "$0.tmp" && mv "$0.tmp" "$0"
 ]], status_file)
 end
 
@@ -326,11 +327,14 @@ local function read_status()
     local text = read_file(status_file)
     if not text then return end
     local values = {}
-    for key, value in text:gmatch("(%w+)=([^\n]*)") do values[key] = value end
+    for key, value in text:gmatch("([%w_]+)=([^\n]*)") do values[key] = value end
     status.wifi = values.wifi == "enabled"
     status.linked = (tonumber(values.linked) or 0) > 0
     status.bluetooth = values.bluetooth == "yes"
     status.volume = tonumber(values.volume)
+    status.media = (values.media == "Playing" or values.media == "Paused") and values.media or ""
+    status.title = values.title or ""
+    status.artist = values.artist or ""
 end
 
 local function device()
@@ -360,7 +364,8 @@ local function control_settings()
         brightness = (control and control.brightness) or here.brightness
             or (state.settings.brightness - 0.25) / 0.75,
         volume = status.volume or state.settings.volume or 0.5,
-        wifi = status.wifi, wifiLinked = status.linked, bluetooth = status.bluetooth, airplane = airplane }
+        wifi = status.wifi, wifiLinked = status.linked, bluetooth = status.bluetooth, airplane = airplane,
+        mediaStatus = status.media, mediaTitle = status.title, mediaArtist = status.artist }
 end
 
 -- The status bar's Wi-Fi and battery; hidden while the Control Center
@@ -437,8 +442,8 @@ local function control_act(action, data)
         local amount = math.floor(math.max(0, math.min(1, tonumber(data.value) or 0)) * 64 + 0.5) / 64
         if control and amount ~= control_amount then control_amount = amount; shell_effects(amount) end
     elseif action == "mobile.control.geometry" then
-        control_panel = { x = tonumber(data.x) or 0.7, y = tonumber(data.y) or 0.15,
-            w = tonumber(data.w) or 0.25, h = tonumber(data.h) or 0.45 }
+        control_panel = { x = tonumber(data.x) or 0.7, y = tonumber(data.y) or 0,
+            w = tonumber(data.w) or 0.3, h = tonumber(data.h) or 1, soft = tonumber(data.soft) or 0.2 }
         if control and control_amount > 0 then shell_effects(control_amount) end
     elseif action == "mobile.control.refresh" then
         read_status()
@@ -477,6 +482,16 @@ local function control_act(action, data)
     elseif action == "mobile.control.setting" then
         mobile.setting(data)
         control_show(control_settings())
+    elseif action == "mobile.control.media" then
+        local verb = ({ play = "play-pause", next = "next", previous = "previous" })[data.act]
+        if verb then
+            run("playerctl", verb)
+            if data.act == "play" then
+                status.media = status.media == "Playing" and "Paused" or "Playing"
+                control_show({ mediaStatus = status.media })
+            end
+            refresh_status()
+        end
     elseif action == "mobile.control.screenshot" then
         state.pending_screenshot = true
         control_settle(0, 0)

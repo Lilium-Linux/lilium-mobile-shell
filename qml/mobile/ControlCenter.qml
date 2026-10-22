@@ -37,6 +37,9 @@ Item {
     property bool wifiLinked: false    // and connected
     property bool bluetooth: false
     property bool airplane: false
+    property string mediaStatus: ""    // Playing, Paused, or empty for none
+    property string mediaTitle: ""
+    property string mediaArtist: ""
 
     function send(action, data) { Solium.send("mobile.control." + action, data || {}) }
 
@@ -47,11 +50,12 @@ Item {
     readonly property real restY: tablet ? 142 : 116
     readonly property real rightMargin: tablet ? 96 : 16
 
-    // The panel's place, for the blur's mask.
+    // Where the blur is: the right side, from a little left of the panel to
+    // the edge, top to bottom, fading out leftwards over a fifth of the width.
     function reportGeometry() {
         if (width <= 0 || height <= 0) return
-        send("geometry", { x: panel.x / width, y: root.restY / height,
-            w: panel.width / width, h: panel.height / height })
+        const left = Math.max(0, panel.x - 40) / width
+        send("geometry", { x: left, y: 0, w: 1 - left + 0.1, h: 1.1, soft: 0.2 })
     }
     onWidthChanged: Qt.callLater(reportGeometry)
     onHeightChanged: Qt.callLater(reportGeometry)
@@ -207,12 +211,11 @@ Item {
             property string icon: ""
             property bool on: false
             property color accent: "#0a84ff"
-            property bool inset: false
             property string label: ""
             signal triggered()
-            width: root.cell * (inset ? 0.8 : 1); height: width; radius: width / 2
-            color: on ? accent : (inset ? "#2effffff" : "#2bffffff")
-            border { width: inset ? 0 : 1.2; color: "#3dffffff" }
+            width: root.cell; height: width; radius: width / 2
+            color: on ? accent : "#2bffffff"
+            border { width: 1.2; color: on ? Qt.lighter(accent, 1.25) : "#3dffffff" }
             Accessible.role: Accessible.Button
             Accessible.name: label
             Glyph { anchors.centerIn: parent; width: parent.width * 0.45; height: width; name: round.icon; color: "white" }
@@ -265,41 +268,51 @@ Item {
         readonly property real g: root.gap
         function at(column) { return column * (c + g) }
 
-        // Connectivity: airplane, split screen, Wi-Fi, Bluetooth.
+        // Connectivity: airplane, split screen, Wi-Fi, Bluetooth, each a
+        // button like every other.
+        Round { x: 0; y: 0; icon: "airplane"; label: "Airplane mode"; on: root.airplane; accent: "#ff9f0a"; onTriggered: root.send("airplane") }
+        Round { x: panel.at(1); y: 0; icon: "split"; label: "Split screen"; on: root.splitActive; enabled: root.tablet; opacity: enabled ? 1 : 0.4; onTriggered: root.send("split") }
+        Round { x: 0; y: panel.at(1); icon: "wifi"; label: "Wi-Fi"; on: root.wifi && !root.airplane; onTriggered: root.send("wifi") }
+        Round { x: panel.at(1); y: panel.at(1); icon: "bluetooth"; label: "Bluetooth"; on: root.bluetooth && !root.airplane; onTriggered: root.send("bluetooth") }
+        // Now Playing: whatever an MPRIS player is playing (playerctl).
         Frost {
-            x: 0; y: 0; width: 2 * panel.c + panel.g; height: width
-            Grid {
-                anchors.centerIn: parent; columns: 2; spacing: panel.g
-                Round { inset: true; icon: "airplane"; label: "Airplane mode"; on: root.airplane; accent: "#ff9f0a"; onTriggered: root.send("airplane") }
-                Round { inset: true; icon: "split"; label: "Split screen"; on: root.splitActive; enabled: root.tablet; opacity: enabled ? 1 : 0.4; onTriggered: root.send("split") }
-                Round { inset: true; icon: "wifi"; label: "Wi-Fi"; on: root.wifi && !root.airplane; onTriggered: root.send("wifi") }
-                Round { inset: true; icon: "bluetooth"; label: "Bluetooth"; on: root.bluetooth && !root.airplane; onTriggered: root.send("bluetooth") }
-            }
-        }
-        // The battery, where the iPad has Now Playing.
-        Frost {
+            id: media
+            readonly property bool playing: root.mediaStatus === "Playing"
+            readonly property bool none: root.mediaStatus === ""
             x: panel.at(2); y: 0; width: 2 * panel.c + panel.g; height: width
-            Item {
-                x: 18; y: 18; width: 44; height: 22
-                Rectangle {
-                    width: 40; height: 22; radius: 6; color: "transparent"; border { width: 2; color: "#d9ffffff" }
+            Rectangle {
+                x: 16; y: 16; width: 46; height: 46; radius: 12
+                color: "#24ffffff"
+                Glyph { anchors.centerIn: parent; width: 22; height: 22; name: "note"; color: "#99ffffff" }
+            }
+            Column {
+                x: 16; y: 72; width: parent.width - 32; spacing: 1
+                Text {
+                    width: parent.width; elide: Text.ElideRight
+                    text: media.none ? "Not Playing" : (root.mediaTitle || "Unknown")
+                    color: "white"; font { pixelSize: 14; weight: Font.DemiBold }
+                }
+                Text {
+                    width: parent.width; elide: Text.ElideRight; visible: !media.none && root.mediaArtist !== ""
+                    text: root.mediaArtist; color: "#b3ffffff"; font { pixelSize: 12 }
+                }
+            }
+            Row {
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 10 }
+                spacing: 6
+                opacity: media.none ? 0.45 : 1
+                Repeater {
+                    model: [{ icon: "previous", act: "previous", size: 18 },
+                            { icon: media.playing ? "pause" : "play", act: "play", size: 22 },
+                            { icon: "next", act: "next", size: 18 }]
                     Rectangle {
-                        x: 3; y: 3; height: parent.height - 6; radius: 3
-                        width: Math.max(2, (parent.width - 6) * Math.max(0, root.battery) / 100)
-                        color: root.charging ? "#30d158" : (root.battery >= 0 && root.battery <= 20 ? "#ff453a" : "white")
+                        required property var modelData
+                        width: 40; height: 40; radius: 20
+                        color: hit.pressed ? "#33ffffff" : "transparent"
+                        Glyph { anchors.centerIn: parent; width: modelData.size; height: width; name: modelData.icon }
+                        MouseArea { id: hit; anchors.fill: parent; enabled: !media.none; onClicked: root.send("media", { act: modelData.act }) }
                     }
                 }
-                Rectangle { x: 41; y: 7; width: 3; height: 8; radius: 1.5; color: "#d9ffffff" }
-            }
-            Text {
-                x: 18; anchors { bottom: parent.bottom; bottomMargin: 44 }
-                text: root.battery >= 0 ? root.battery + "%" : "—"
-                color: "white"; font { pixelSize: 34; weight: Font.DemiBold }
-            }
-            Text {
-                x: 18; anchors { bottom: parent.bottom; bottomMargin: 22 }
-                text: root.battery < 0 ? "No battery" : (root.charging ? "Charging" : "Battery")
-                color: "#b3ffffff"; font { pixelSize: 13; weight: Font.Medium }
             }
         }
         // Reduce motion and the app switcher; brightness and volume, tall.
