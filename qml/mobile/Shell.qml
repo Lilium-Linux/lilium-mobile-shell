@@ -1,4 +1,5 @@
 import QtQuick
+import "../icons.js" as Icons
 import QtQml.Models
 import Solium
 
@@ -146,7 +147,7 @@ Item {
                                 Component.onDestruction: root.unregisterIcon(appTile)
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 title: modelData.name; glyph: modelData.glyph; tone: modelData.tone
-                                imageSource: modelData.icon ? "image://solium/icon/" + modelData.icon + "?size=60" : ""
+                                imageSource: Icons.source(modelData.icon, 60)
                                 onTriggered: origin => root.launch(modelData, origin)
                             }
                         }
@@ -203,7 +204,7 @@ Item {
                         width: 70; height: 60; showTitle: false
                         appKey: modelData.desktopId
                         title: modelData.name; glyph: modelData.glyph; tone: modelData.tone
-                        imageSource: modelData.icon ? "image://solium/icon/" + modelData.icon + "?size=60" : ""
+                        imageSource: Icons.source(modelData.icon, 60)
                         onTriggered: origin => root.launch(modelData, origin)
                     }
                 }

@@ -17,7 +17,13 @@ nested Solium on the desktop.
 - **Recents**: the open windows as cards, rounded by their present
   (`effects/mobile-card`, which also draws their shadow); tap to open one,
   flick up to close it.
-- **Shade**: quick settings.
+- **Control Center** (`qml/mobile/ControlCenter.qml`): pulled down from the
+  top-right edge, after the iPad's; its surface also draws the status bar's
+  Wi-Fi and battery.
+- **Icons**: the [WhiteSur](https://github.com/vinceliuice/WhiteSur-icon-theme)
+  application icons, in `icons/WhiteSur` (GPL-3.0, its `COPYING`; refreshed
+  from a pinned release by `tools/update-whitesur.sh`). `qml/icons.js` takes
+  WhiteSur's where it has one and the system theme's otherwise.
 - **Pane styles** (`qml/panes`): `mobile` (Recents' title above each card)
   and `mobile-flat` (an application on screen); the `icon` layer is what a window
   turns into as it flies to its launcher icon.

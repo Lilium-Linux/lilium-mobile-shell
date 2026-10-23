@@ -1,4 +1,5 @@
 import QtQuick
+import "../../icons.js" as Icons
 import Solium
 
 // The window's own icon, behind its client, while the window flies to or from
@@ -53,7 +54,8 @@ Item {
             anchors.fill: parent
             // Only the window that is flying loads it: an icon decoded for
             // every pane each time a flight starts is a frame lost per window.
-            source: art.mine && art.iconName ? "image://solium/icon/" + art.iconName + "?size=256" : ""
+            source: art.mine ? Icons.source(art.iconName, 256) : ""
+            sourceSize { width: 256; height: 256 }
             visible: status === Image.Ready
             smooth: true; mipmap: true
         }

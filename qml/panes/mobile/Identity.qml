@@ -1,4 +1,5 @@
 import QtQuick
+import "../../icons.js" as Icons
 import Solium
 
 Item {
@@ -31,7 +32,8 @@ Item {
                 // Nothing while the header is dormant (everywhere but Recents): a
                 // theme icon looked up for every window each time a title, the
                 // focus or the pointer changes costs a frame per window.
-                source: !frame.dormant && frame.appId ? "image://solium/icon/" + frame.appId + "?size=32" : ""
+                source: !frame.dormant ? Icons.source(frame.appId, 32) : ""
+                sourceSize { width: 64; height: 64 }
                 asynchronous: true
                 visible: status === Image.Ready
             }

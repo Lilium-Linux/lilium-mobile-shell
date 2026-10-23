@@ -33,7 +33,13 @@ Item {
             anchors.fill: parent; radius: width / 4; color: "#5b6478"
             Text { anchors.centerIn: parent; text: tile.glyph; color: "white"; font { pixelSize: 28; weight: Font.Medium } }
         }
-        Image { id: image; anchors.fill: parent; source: tile.imageSource; visible: status === Image.Ready; smooth: true; mipmap: true }
+        // Drawn at twice its size: a WhiteSur SVG rasterises at what it is
+        // asked for, and the screen is at least 2x on the devices this runs on.
+        Image {
+            id: image; anchors.fill: parent; source: tile.imageSource
+            sourceSize { width: 2 * width; height: 2 * height }
+            visible: status === Image.Ready; smooth: true; mipmap: true
+        }
     }
     Text {
         visible: tile.showTitle
