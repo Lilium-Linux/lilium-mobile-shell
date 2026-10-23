@@ -460,6 +460,7 @@ Item {
             Round { x: 0; y: panel.at(4); icon: "home"; label: "Home"; onTriggered: root.send("home") }
             Round { x: panel.at(1); y: panel.at(4); icon: "camera"; label: "Screenshot"; onTriggered: root.send("screenshot") }
             Round { x: panel.at(2); y: panel.at(4); icon: "reload"; label: "Reload the shell"; onTriggered: root.send("reload") }
+            Round { x: panel.at(3); y: panel.at(4); icon: "lock"; label: "Lock"; onTriggered: root.send("lock") }
         }
     }
 }

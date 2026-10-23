@@ -431,6 +431,11 @@ local function control_gone()
         state.pending_suspend = false
         run("systemctl", "suspend")
     end
+    -- Solium's own lock (#281), once the Control Center is out of the way.
+    if state.pending_lock then
+        state.pending_lock = false
+        if sol.lock_now then sol.lock_now() end
+    end
 end
 
 -- The backlight through logind, which lets the session's own user set it.
@@ -506,6 +511,9 @@ local function control_act(action, data)
         control_settle(0, 0)
     elseif action == "mobile.control.power" then
         state.pending_suspend = true
+        control_settle(0, 0)
+    elseif action == "mobile.control.lock" then
+        state.pending_lock = true
         control_settle(0, 0)
     elseif action == "mobile.control.home" then control_settle(0, 0); mobile.home()
     elseif action == "mobile.control.recents" then control_settle(0, 0); mobile.recents()
