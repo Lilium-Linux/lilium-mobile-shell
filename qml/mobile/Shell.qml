@@ -37,7 +37,6 @@ Item {
     property real brightness: 1
     property bool darkAppearance: false
     property bool reduceMotion: false
-    property date now: new Date()
     property var installed: []
     property int homeRequest: 0
     property var iconItems: []
@@ -99,7 +98,6 @@ Item {
         onObjectAdded: Qt.callLater(root.refreshApps)
         onObjectRemoved: Qt.callLater(root.refreshApps)
     }
-    Timer { interval: 1000; running: true; repeat: true; onTriggered: root.now = new Date() }
     focus: !home && page !== "app"
     Solium.keyboard.wants: !home && page !== "app"
     Solium.keyboard.claims: ["Escape"]
@@ -214,12 +212,9 @@ Item {
             id: status
             width: parent.width; height: root.statusHeight
             color: root.underneath === "app" ? "#13151c" : "transparent"
-            Text {
-                anchors { left: parent.left; leftMargin: 24; verticalCenter: parent.verticalCenter }
-                text: Qt.formatTime(root.now, "h:mm"); color: "white"; font { pixelSize: 13; weight: Font.DemiBold }
-            }
-            // The Wi-Fi and battery on the right are the Control Center's
-            // (ControlCenter.qml): drawn above this bar, they go with it.
+            // The clock on the left and the Wi-Fi and battery on the right are
+            // the Control Center's (ControlCenter.qml): drawn above this bar,
+            // the clock fades and the status icons travel as it comes down.
             MouseArea {
                 anchors.fill: parent
                 onClicked: root.send("shade")

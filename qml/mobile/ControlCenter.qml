@@ -231,7 +231,23 @@ Item {
             Translate { y: root.sag }
         ]
 
-        // ---- The top: status and power ------------------------------------------------
+        // ---- The top: the clock, status and power -------------------------------------
+        // The status bar's clock, faded out as the Control Center comes down,
+        // as the iPad's is. Read at the start of each minute only.
+        Text {
+            id: clock
+            property date now: new Date()
+            x: 24; y: (root.statusHeight - height) / 2
+            text: Qt.formatTime(now, "h:mm")
+            color: "white"; font { pixelSize: 13; weight: Font.DemiBold }
+            opacity: 1 - root.ramp(0, 0.35)
+            visible: opacity > 0.001
+            Timer {
+                interval: Math.max(1000, 60000 - clock.now.getSeconds() * 1000 - clock.now.getMilliseconds())
+                running: true; repeat: true
+                onTriggered: clock.now = new Date()
+            }
+        }
         // The status bar's own Wi-Fi and battery: at rest where the bar has them,
         // carried with the finger to above the panel.
         StatusCluster {
@@ -460,7 +476,6 @@ Item {
             Round { x: 0; y: panel.at(4); icon: "home"; label: "Home"; onTriggered: root.send("home") }
             Round { x: panel.at(1); y: panel.at(4); icon: "camera"; label: "Screenshot"; onTriggered: root.send("screenshot") }
             Round { x: panel.at(2); y: panel.at(4); icon: "reload"; label: "Reload the shell"; onTriggered: root.send("reload") }
-            Round { x: panel.at(3); y: panel.at(4); icon: "lock"; label: "Lock"; onTriggered: root.send("lock") }
         }
     }
 }

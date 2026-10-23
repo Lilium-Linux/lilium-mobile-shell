@@ -8,6 +8,10 @@ local pane_style = config.pane or "mobile-flat"
 local swipe = { offset = 0, lift = 0, id = 0 }
 local nav, home_exit
 local K = require("kinetics")
+-- The pull from the top edge's clock side that locks: let go past `commit` of
+-- the screen's height, or flung down faster than `fling` heights a second.
+local lock_pull = { commit = 0.33, fling = 1.2 }
+
 local touch_config = { edge=36, travel=0.45, commit=0.34, fling=1000,
     deceleration=2400, window_ms=80, stale_ms=100, handle_width=52, elastic=0.18, home_progress=1.2, max_release_speed=4000,
     stiffness=300, damping=25, mass=1, tap=8 }
@@ -431,11 +435,6 @@ local function control_gone()
         state.pending_suspend = false
         run("systemctl", "suspend")
     end
-    -- Solium's own lock (#281), once the Control Center is out of the way.
-    if state.pending_lock then
-        state.pending_lock = false
-        if sol.lock_now then sol.lock_now() end
-    end
 end
 
 -- The backlight through logind, which lets the session's own user set it.
@@ -511,9 +510,6 @@ local function control_act(action, data)
         control_settle(0, 0)
     elseif action == "mobile.control.power" then
         state.pending_suspend = true
-        control_settle(0, 0)
-    elseif action == "mobile.control.lock" then
-        state.pending_lock = true
         control_settle(0, 0)
     elseif action == "mobile.control.home" then control_settle(0, 0); mobile.home()
     elseif action == "mobile.control.recents" then control_settle(0, 0); mobile.recents()
@@ -1153,6 +1149,16 @@ local function release(e,cancelled)
         control_settle(open and 1 or 0,pv)
         return
     end
+    if g.kind=="lock" then
+        -- Locked when let go past a third of the way, or flung down; the
+        -- sheet goes back up when flung up or let go short.
+        local whole=dimensions()
+        local p=(e.y-g.y)/whole.h
+        local pv=vy/whole.h
+        if not cancelled and pv>-1.5 and (p>lock_pull.commit or pv>lock_pull.fling) then sol.lock_now()
+        else sol.lock_peek(false) end
+        return
+    end
     if g.kind=="home-swipe" then
         local _,area=dimensions()
         local p=(g.y-e.y)/(area.h*touch_config.travel)
@@ -1251,8 +1257,12 @@ sol.on("touch",function(e)
             and math.abs(e.x-(whole.x+whole.w/2))<=touch_config.handle_width/2
         -- The top edge's right half pulls the Control Center down, from any
         -- page but Recents.
-        local at_corner=e.y<whole.y+math.max(24,config.status) and e.x>whole.x+whole.w*0.55
+        local at_top=e.y<whole.y+math.max(24,config.status)
+        local at_corner=at_top and e.x>whole.x+whole.w*0.55
         if at_corner and not control and state.page~="recents" and state.page~="shade" then kind="control"
+        -- The rest of the top edge, the clock's side, pulls the lock down
+        -- with the finger, as an iPhone's does.
+        elseif at_top and not control and sol.lock_peek and state.page~="recents" and state.page~="shade" then kind="lock"
         elseif state.page=="app" and at_handle then kind="navigation"
         -- From the home screen the same swipe, held, opens Recents; there is
         -- no window to follow, so nothing moves until it is let go.
@@ -1263,6 +1273,7 @@ sol.on("touch",function(e)
             gesture={slot=e.slot,kind=kind,x=e.x,y=e.y,k=K.new(touch_config)}
             gesture.k:sample(e.time,e.x,e.y)
             if kind=="control" then control_drag(0)
+            elseif kind=="lock" then sol.lock_peek(0)
             elseif kind=="navigation" then nav={p=0,raw=0,x0=e.x,y0=e.y,fx=e.x,fy=e.y};mobile.apply({duration=0})
             else
                 reset_swipe()
@@ -1282,6 +1293,11 @@ sol.on("touch",function(e)
             if g.kind=="control" then
                 local _,_,tablet=dimensions()
                 control_drag((e.y-g.y)/control_travel(tablet),e.x-g.x);finger(e);return
+            end
+            if g.kind=="lock" then
+                -- The sheet's edge stays under the finger.
+                local whole=dimensions()
+                sol.lock_peek(math.max(0,math.min(1,(e.y-g.y)/whole.h)));finger(e);return
             end
             local _,area=dimensions()
             if g.kind=="navigation" then
