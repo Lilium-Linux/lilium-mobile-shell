@@ -138,6 +138,11 @@ local function promote(id)
     state.order = out
 end
 
+-- Whether this Solium minimizes windows (#30): an app that is not on screen is
+-- minimized, and Recents shows the minimized ones as cards.
+local minimizing = sol.minimize ~= nil and sol.show_minimized ~= nil
+local shown_minimized = {}
+
 local function windows()
     local monitor = screen()
     local by_id, dialogs = {}, {}
@@ -613,9 +618,20 @@ function mobile.apply(motion)
                     area.w * (1 - state.ratio) - 5, area.h)
             end
         end
-        sol.place(window.id, slot)
         local visible = content_page == "app" and (window.id == state.active
             or (#state.split == 2 and (window.id == state.split[1] or window.id == state.split[2])))
+        -- What is on screen is shown before it is placed: Solium leaves a
+        -- minimized window where it was. Recents draws them all as cards.
+        local on_screen = visible or (nav and window.id == state.active)
+        if window.minimized and on_screen then sol.unminimize(window.id) end
+        if minimizing then
+            local card = (content_page == "recents" and not on_screen and window.minimized) == true
+            if card ~= (shown_minimized[window.id] or false) then
+                sol.show_minimized(window.id, card)
+                shown_minimized[window.id] = card or nil
+            end
+        end
+        sol.place(window.id, slot)
         if nav and window.id == state.active then
             local cw,ch=card_metrics(area,tablet)
             local p=nav.p
@@ -675,6 +691,9 @@ function mobile.apply(motion)
             -- pane. Reassert its hidden transform on every layout pass.
             hide(window, whole)
             presentations[window.id] = "hidden"
+            -- And put it away for real: minimized, it holds no keyboard and is
+            -- not drawn once the flight that hid it has landed.
+            if minimizing and not window.minimized then sol.minimize(window.id) end
         end
     end
 
