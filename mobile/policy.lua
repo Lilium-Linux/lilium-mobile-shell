@@ -353,9 +353,9 @@ local function device()
     return { battery = battery, charging = charging, brightness = brightness }
 end
 
--- Pixels of finger from closed to open: the distance the status bar's Wi-Fi
--- and battery travel to above the panel, so they stay under the finger.
-local function control_travel(tablet) return tablet and 150 or 120 end
+-- Pixels of finger from closed to open: about the distance the status bar's
+-- Wi-Fi and battery drop to above the panel, so they move one to one with it.
+local function control_travel(tablet) return tablet and 110 or 85 end
 
 local function control_settings()
     local _, _, tablet = dimensions()
@@ -688,6 +688,10 @@ function mobile.apply(motion)
         else hide(window, whole) end
     end
 
+    -- The Control Center first: of two surfaces on one layer the one declared
+    -- first is drawn on top, and it is drawn over the status bar's band
+    -- (its Wi-Fi and battery are on it) and dims the bar and the dock.
+    mobile.apply_status()
     sol.surface("mobile-wallpaper", {
         scene = "mobile/Wallpaper.qml", layer = "background", on = "primary",
         properties = { dark = state.settings.dark, overview = content_page == "recents",
@@ -720,8 +724,6 @@ function mobile.apply(motion)
         reserve = { top = config.status, bottom = config.navigation },
         properties = chrome,
     })
-    -- Declared after the chrome, so it is drawn above it.
-    mobile.apply_status()
     -- The grab keeps keys and clicks on real Recents thumbnails from leaking
     -- into their clients. Home needs none: its windows are drawn at opacity
     -- zero, which owns no pixel, and the icon grid below the windows is only

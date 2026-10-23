@@ -78,11 +78,8 @@ Item {
     property bool armed: false
 
     function track(value) {
-        const now = Date.now()
-        if (now > trackedAt && trackedAt > 0)
-            velocity = 0.5 * velocity + 0.5 * (value - shown) / ((now - trackedAt) / 1000)
-        trackedAt = now
-        stillness.restart()
+        nudgeBack.stop()
+        nudge = Math.max(-16, Math.min(16, fingerDx * 0.12))
         shown = value
         if (value >= 0.45) armed = true
         else if (value < 0.3) armed = false
@@ -93,7 +90,9 @@ Item {
     // of them are in: read on its own, `release` could start the spring
     // towards the last `target`, and leave the screen dimmed with no panel,
     // or closed with the panel's tap-anywhere-to-close still taking presses.
-    onProgressChanged: Qt.callLater(follow)
+    // A finger already being followed is followed at once, so it is never a
+    // frame behind.
+    onProgressChanged: if (dragging && following) track(progress); else Qt.callLater(follow)
     onDraggingChanged: Qt.callLater(follow)
     onReleaseChanged: Qt.callLater(released)
     property int settledRelease: 0
@@ -107,6 +106,7 @@ Item {
         if (release === settledRelease) return
         settledRelease = release
         following = false
+        letGo()
         settle(target, releaseVelocity)
     }
 
@@ -161,27 +161,28 @@ Item {
     readonly property real dim: ramp(0, 0.5)
     // The iPad's jelly, measured frame by frame: pulled past open the
     // content moves down about 14 px and stretches about 5 % downwards from
-    // the top of the screen, and while it moves fast it is up to 2 % longer
-    // still; it all relaxes with the spring, with no swing back.
+    // the top of the screen, and on its way after a release it is up to 2 %
+    // longer still while it moves fast; it all relaxes with the spring, with
+    // no swing back. Under the finger nothing is smoothed: it is where the
+    // finger puts it.
     // `over` is how far past open the finger is, in travels (the policy
     // hands over a quarter of it), and `give` that rubber-banded to 0..1.
     readonly property real over: shown > 1 ? (shown - 1) / 0.25 : 0
     readonly property real give: 1 - 1 / (1 + 1.5 * over)
-    property real velocity: 0          // progress per second, the finger's or the spring's
-    property real trackedAt: 0
-    // No new finger position for a moment: it has stopped.
-    Timer { id: stillness; interval: 60; onTriggered: { root.velocity = 0; root.trackedAt = 0 } }
-    property real squish: reduceMotion ? 0 : 0.02 * Math.min(1, Math.abs(spring.running ? speed : velocity) / 8)
-    Behavior on squish { NumberAnimation { duration: 90 } }
+    readonly property real squish: reduceMotion || !spring.running ? 0 : 0.02 * Math.min(1, Math.abs(speed) / 8)
     readonly property real sag: reduceMotion ? 0 : 14 * give
     readonly property real stretchY: reduceMotion ? 0 : 0.055 * give + squish
     // The status icons go down first and across after, as the iPad's: the
-    // sideways part trails the finger by a few frames, and a sideways finger
-    // moves them a little inside that path.
-    property real across: s
-    Behavior on across { enabled: !root.reduceMotion; SmoothedAnimation { duration: 110 * Math.max(0.25, root.pace) } }
-    property real nudge: dragging ? Math.max(-16, Math.min(16, fingerDx * 0.12)) : 0
-    Behavior on nudge { enabled: !root.dragging && !root.reduceMotion; NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+    // sideways part is the square of the way down. A sideways finger moves
+    // them a little off that path, and once let go they ease back onto it.
+    readonly property real across: s * s
+    property real nudge: 0
+    NumberAnimation {
+        id: nudgeBack
+        target: root; property: "nudge"; to: 0
+        duration: 280 * Math.max(0.25, root.pace); easing.type: Easing.OutCubic
+    }
+    function letGo() { if (reduceMotion) nudge = 0; else nudgeBack.restart() }
     // The modules' fade, a few frames each way.
     property real reveal: armed ? 1 : 0
     Behavior on reveal {
