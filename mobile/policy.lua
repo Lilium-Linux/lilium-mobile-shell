@@ -395,11 +395,11 @@ local function control_begin()
 end
 
 -- The finger pulling it down: `progress` 0 closed to 1 open, rubber-banded
--- past 1.
-local function control_drag(progress)
+-- past 1, and `dx` pixels sideways since it went down.
+local function control_drag(progress, dx)
     control_begin()
     local shown = progress <= 1 and progress or 1 + (progress - 1) * 0.25
-    control_show({ dragging = true, progress = math.max(0, shown) })
+    control_show({ dragging = true, progress = math.max(0, shown), fingerDx = dx or 0 })
 end
 
 -- Let go, or tapped open: the scene's spring takes it to `target` from
@@ -1252,7 +1252,7 @@ sol.on("touch",function(e)
             if g.kind=="home-swipe" then finger(e);return end
             if g.kind=="control" then
                 local _,_,tablet=dimensions()
-                control_drag((e.y-g.y)/control_travel(tablet));finger(e);return
+                control_drag((e.y-g.y)/control_travel(tablet),e.x-g.x);finger(e);return
             end
             local _,area=dimensions()
             if g.kind=="navigation" then
