@@ -1,18 +1,19 @@
 import QtQuick
 import Solium
 
-// The Control Center, after the iPad's (measured from a recording): pulled
-// down from the top-right edge, it follows the finger; let go, a spring with
-// no overshoot carries it the rest of the way from the finger's own speed. One
-// progress, `shown`, draws all of it, in the iPad's order:
-//   - the screen dims to about half (0.48 black), uniformly; only under and
-//     round the panel is anything blurred (effects/cc-fade, effects/cc-blur,
-//     masked to `panel`), so the tiles are frosted and the rest stays sharp;
-//   - Wi-Fi and the battery slide with the finger from the status bar to
-//     above the panel, and the power button fades in above its right edge;
-//   - at about 60 % the modules appear, a few frames' fade, sitting higher by
-//     as much as is left to pull, and glide down into place with the finger.
-// The progress is reported to the policy every frame for the blur.
+// The Control Center, after the iPad's (measured frame by frame from a
+// recording). Its surface is always there: at rest it draws only the status
+// bar's Wi-Fi and battery, so they are one set of pixels from the bar to the
+// open panel and nothing is handed over between scenes.
+//   - Pulled down from the top-right edge, the Wi-Fi and battery, the dim and
+//     the blur follow the finger one to one over `travel` pixels; past it they
+//     give only a little (rubber band) and come back when let go.
+//   - The modules are not dragged in. Past about half way they fade in over a
+//     few frames, drifting down a few pixels into place; back under a third,
+//     or closed, they fade out drifting up.
+//   - Let go, a spring takes it the rest of the way from the finger's own
+//     speed, and stops at the end instead of going past it.
+// The dim's progress is reported to the policy every frame for the blur.
 Item {
     id: root
 
@@ -22,6 +23,7 @@ Item {
     property real target: 0            // where to settle once let go: 0 or 1
     property real releaseVelocity: 0   // progress per second at the release
     property int release: 0            // moves on each release, to start the spring
+    property real travel: 150          // pixels of finger from closed to open
     property real pace: 1              // SOLIUM_MOBILE_PACE: slower is larger
     property bool reduceMotion: false
     property int statusHeight: 32
@@ -59,22 +61,35 @@ Item {
     }
     onWidthChanged: Qt.callLater(reportGeometry)
     onHeightChanged: Qt.callLater(reportGeometry)
-    Component.onCompleted: { reportGeometry(); refreshTimer.start() }
-    // The status the policy reads in the background, read again once it is in.
+    Component.onCompleted: reportGeometry()
+    // The status the policy reads in the background on each open, read again
+    // once it is in.
     Timer { id: refreshTimer; interval: 450; onTriggered: root.send("refresh") }
 
     // ---- The one progress -------------------------------------------------------
     property real shown: 0
     property real speed: 0
-    // Critically damped, as the iPad's settles: no overshoot, about 0.55 s.
-    readonly property real omega: 2 * Math.PI / (0.55 * Math.max(0.25, pace))
+    // Critically damped and quick, as the iPad's: within 1 % in about a
+    // quarter of a second, and never past the end.
+    readonly property real omega: 2 * Math.PI / (0.32 * Math.max(0.25, pace))
+    // Whether the modules are in: past 45 % on the way down, until back
+    // under 30 %, so a finger wavering at the threshold does not flicker them.
+    property bool armed: false
 
-    onProgressChanged: if (dragging) { shown = progress; report() }
-    onDraggingChanged: if (dragging) { spring.running = false; shown = progress }
+    function track(value) {
+        shown = value
+        if (value >= 0.45) armed = true
+        else if (value < 0.3) armed = false
+        report()
+    }
+    onProgressChanged: if (dragging) track(progress)
+    onDraggingChanged: if (dragging) { spring.running = false; refreshTimer.restart(); track(progress) }
     onReleaseChanged: settle(target, releaseVelocity)
 
     function settle(to, velocity) {
+        if (to === 1 && shown <= 0) refreshTimer.restart()
         target = to
+        armed = to === 1
         if (reduceMotion) { shown = to; speed = 0; report(); settled(); return }
         speed = velocity
         spring.running = true
@@ -85,10 +100,15 @@ Item {
         running: false
         onTriggered: {
             const dt = Math.min(frameTime, 1 / 30)
-            const accel = -root.omega * root.omega * (root.shown - root.target) - 2 * root.omega * root.speed
+            const before = root.shown - root.target
+            const accel = -root.omega * root.omega * before - 2 * root.omega * root.speed
             root.speed += accel * dt
             root.shown += root.speed * dt
-            if (Math.abs(root.shown - root.target) < 0.0015 && Math.abs(root.speed) < 0.02) {
+            const after = root.shown - root.target
+            // Done once close, or at the end if the finger's speed would carry
+            // it past: it stops there rather than swinging back.
+            if ((before !== 0 && after * before <= 0)
+                    || (Math.abs(after) < 0.0015 && Math.abs(root.speed) < 0.02)) {
                 root.shown = root.target
                 root.speed = 0
                 running = false
@@ -100,7 +120,8 @@ Item {
         }
     }
 
-    function report() { send("progress", { value: Math.max(0, Math.min(1, shown)) }) }
+    // The blur follows the dim.
+    function report() { send("progress", { value: dim }) }
     function settled() { if (target === 0) send("closed") }
 
     // Shapes of the progress: `ramp(a, b)` is 0 before a, 1 after b, eased.
@@ -108,16 +129,23 @@ Item {
         const t = Math.max(0, Math.min(1, (shown - a) / (b - a)))
         return t * t * (3 - 2 * t)
     }
-    readonly property real s: Math.max(0, shown)
-    // How far the cluster sits from rest: above while still being pulled,
-    // a little below, rubber-banded, when pulled past open.
-    readonly property real lift: shown < 1 ? (shown - 1) * 120 : (shown - 1) * 40
+    readonly property real s: Math.max(0, Math.min(1, shown))
+    readonly property real dim: ramp(0, 0.5)
+    // Pulled past open, everything gives a little with the finger.
+    readonly property real stretch: shown > 1 ? (shown - 1) * travel * 0.6 : 0
+    // The modules' fade, a few frames each way.
+    property real reveal: armed ? 1 : 0
+    Behavior on reveal {
+        enabled: !root.reduceMotion
+        NumberAnimation { duration: (root.armed ? 120 : 100) * Math.max(0.25, root.pace); easing.type: Easing.OutCubic }
+    }
 
     // ---- Behind ------------------------------------------------------------------
     Rectangle {
         anchors.fill: parent
         color: "black"
-        opacity: 0.48 * root.ramp(0, 0.6)
+        opacity: 0.48 * root.dim
+        visible: opacity > 0.001
     }
     // Anywhere but a control: a tap closes it, a swipe up pushes it back.
     MouseArea {
@@ -128,23 +156,24 @@ Item {
         property real lastTime: 0
         property real velocity: 0
         property bool pushing: false
-        readonly property real travel: root.height * 0.42
         onPressed: mouse => { startY = lastY = mouse.y; lastTime = Date.now(); velocity = 0; pushing = false }
         onPositionChanged: mouse => {
             const now = Date.now()
-            if (now > lastTime) velocity = (mouse.y - lastY) / ((now - lastTime) / 1000) / travel
+            if (now > lastTime) velocity = (mouse.y - lastY) / ((now - lastTime) / 1000) / root.travel
             lastY = mouse.y; lastTime = now
             if (!pushing && startY - mouse.y > 10) { pushing = true; spring.running = false }
-            if (pushing) { root.shown = Math.max(0, Math.min(1, 1 - (startY - mouse.y) / travel)); root.report() }
+            if (pushing) root.track(Math.max(0, Math.min(1, 1 - (startY - mouse.y) / root.travel)))
         }
         onReleased: {
             if (!pushing) { root.settle(0, 0); return }
             pushing = false
-            root.settle(root.shown < 0.75 || velocity < -1.0 ? 0 : 1, velocity)
+            root.settle(root.shown < 0.65 || velocity < -1.0 ? 0 : 1, velocity)
         }
     }
 
     // ---- The top: status and power ------------------------------------------------
+    // The status bar's own Wi-Fi and battery: at rest where the bar has them,
+    // carried with the finger to above the panel.
     StatusCluster {
         id: cluster
         battery: root.battery; charging: root.charging; wifi: root.wifiLinked
@@ -152,20 +181,19 @@ Item {
         readonly property real fromY: (root.statusHeight - height) / 2
         readonly property real toX: panel.x + panel.width - width
         readonly property real toY: root.restY - height - 14
-        readonly property real t: Math.min(1, root.s)
-        x: fromX + (toX - fromX) * t
-        y: fromY + (toY - fromY) * t + Math.max(0, root.lift) * 0.5
-        scale: 1 + 0.12 * t
+        x: fromX + (toX - fromX) * root.s
+        y: fromY + (toY - fromY) * root.s + root.stretch
+        scale: 1 + 0.1 * root.s
         transformOrigin: Item.Right
-        visible: root.s > 0.001
     }
     Rectangle {
         id: power
         width: 40; height: 40; radius: 20
         color: powerPress.pressed ? "#33ffffff" : "transparent"
         x: panel.x + panel.width - width + 4
-        y: root.tablet ? 30 : 22
-        opacity: root.ramp(0.35, 0.6)
+        y: (root.tablet ? 30 : 22) + root.stretch
+        opacity: root.ramp(0.15, 0.7)
+        visible: opacity > 0.001
         Accessible.role: Accessible.Button
         Accessible.name: "Suspend"
         Glyph { anchors.centerIn: parent; width: 22; height: 22; name: "power" }
@@ -177,9 +205,9 @@ Item {
         id: panel
         width: root.span; height: 5 * root.cell + 4 * root.gap
         x: root.width - width - root.rightMargin
-        y: root.restY + root.lift
-        // The modules appear together, over a few frames, at about 60 %.
-        opacity: root.ramp(0.56, 0.66)
+        // In from a few pixels above, out to them.
+        y: root.restY + root.stretch - 8 * (1 - root.reveal)
+        opacity: root.reveal
         visible: opacity > 0.001
 
         // Frosted material: what is behind is blurred by the effect under
@@ -224,7 +252,8 @@ Item {
             MouseArea { id: tap; anchors.fill: parent; onClicked: round.triggered() }
         }
         // A tall slider: the fill follows the finger, which keeps its own
-        // value while it drags and hands it over at most 20 times a second.
+        // value while it drags and hands it over at most 20 times a second,
+        // and goes on showing it once let go until the policy's value is back.
         component Pill: Frost {
             id: pill
             property real value: 0
@@ -233,34 +262,56 @@ Item {
             property string label: ""
             signal moved(real value)
             property real held: value
-            readonly property real drawn: drag.pressed ? held : value
+            property bool handing: false
+            readonly property real drawn: Math.max(0, Math.min(1, drag.pressed || handing ? held : value))
+            onValueChanged: if (handing && Math.abs(value - held) < 0.01) handing = false
             radius: width / 2
             Accessible.role: Accessible.Slider
             Accessible.name: label
-            Rectangle {
-                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                height: parent.height * Math.max(0, Math.min(1, pill.drawn))
-                color: "#f2f2f7"
-                bottomLeftRadius: Math.min(pill.radius, height / 2); bottomRightRadius: bottomLeftRadius
-                topLeftRadius: Math.max(0, pill.radius - (pill.height - height)); topRightRadius: topLeftRadius
-            }
             Glyph {
+                id: glyph
                 anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: parent.width * 0.3 }
                 width: parent.width * 0.42; height: width; name: pill.icon
-                color: pill.drawn > 0.2 ? pill.tint : "white"
+            }
+            // The fill: the pill's own shape cut at the level, so however low
+            // it is its bottom is the pill's round end, and the icon in the
+            // tint where the fill covers it.
+            Item {
+                id: level
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: parent.height * pill.drawn
+                clip: true
+                Rectangle {
+                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                    height: pill.height; radius: pill.radius
+                    color: "#f2f2f7"
+                }
+                // Only once the fill reaches the icon: the software renderer
+                // does not clip a Shape, and below that the icon is white.
+                Glyph {
+                    x: glyph.x; y: glyph.y - level.y
+                    width: glyph.width; height: glyph.height; name: pill.icon; color: pill.tint
+                    visible: level.height > pill.height - glyph.y - glyph.height
+                }
             }
             Timer { id: handOver; interval: 50; onTriggered: pill.moved(pill.held) }
+            Timer { id: handedBack; interval: 600; onTriggered: pill.handing = false }
             MouseArea {
                 id: drag
                 anchors.fill: parent
                 property real from: 0
                 property real startY: 0
-                onPressed: mouse => { from = pill.value; pill.held = pill.value; startY = mouse.y }
+                onPressed: mouse => { from = pill.drawn; pill.held = from; startY = mouse.y }
                 onPositionChanged: mouse => {
                     pill.held = Math.max(0, Math.min(1, from + (startY - mouse.y) / pill.height))
                     if (!handOver.running) handOver.start()
                 }
-                onReleased: { handOver.stop(); pill.moved(pill.held) }
+                onReleased: {
+                    handOver.stop()
+                    pill.handing = true
+                    handedBack.restart()
+                    pill.moved(pill.held)
+                }
             }
         }
 

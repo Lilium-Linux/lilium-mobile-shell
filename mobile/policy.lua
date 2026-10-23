@@ -353,12 +353,17 @@ local function device()
     return { battery = battery, charging = charging, brightness = brightness }
 end
 
+-- Pixels of finger from closed to open: the distance the status bar's Wi-Fi
+-- and battery travel to above the panel, so they stay under the finger.
+local function control_travel(tablet) return tablet and 150 or 120 end
+
 local function control_settings()
     local _, _, tablet = dimensions()
     local count = 0
     for _ in pairs(sol.windows()) do count = count + 1 end
     local here = device()
-    return { pace = pace, reduceMotion = state.settings.reduceMotion, statusHeight = config.status,
+    return { pace = pace, travel = control_travel(tablet), reduceMotion = state.settings.reduceMotion,
+        statusHeight = config.status,
         tablet = tablet, darkAppearance = state.settings.dark, splitActive = #state.split == 2,
         taskCount = count, battery = here.battery, charging = here.charging,
         brightness = (control and control.brightness) or here.brightness
@@ -368,12 +373,14 @@ local function control_settings()
         mediaStatus = status.media, mediaTitle = status.title, mediaArtist = status.artist }
 end
 
--- The status bar's Wi-Fi and battery; hidden while the Control Center
--- carries its own copy of them, which starts where this one is.
-function mobile.apply_status(hidden)
+-- The status bar's Wi-Fi and battery. The Control Center's surface draws
+-- them, always: at rest where the bar has them, and with the finger to above
+-- its panel, so they are never handed between two scenes.
+function mobile.apply_status()
     local here = device()
-    chrome_update({ battery = here.battery, charging = here.charging, wifiLinked = status.linked,
-        statusHidden = hidden and true or false })
+    local _, _, tablet = dimensions()
+    control_show({ battery = here.battery, charging = here.charging, wifiLinked = status.linked,
+        statusHeight = config.status, tablet = tablet, travel = control_travel(tablet), pace = pace })
 end
 
 local function control_begin()
@@ -385,7 +392,6 @@ local function control_begin()
     local properties = control_settings()
     properties.dragging, properties.progress, properties.target = true, 0, 1
     control_show(properties)
-    mobile.apply_status(true)
 end
 
 -- The finger pulling it down: `progress` 0 closed to 1 open, rubber-banded
@@ -411,9 +417,7 @@ function mobile.control_open() control_settle(1, 0) end
 local function control_gone()
     control = nil
     control_amount = -1
-    sol.surface("mobile-control", false)
     shell_effects(0)
-    mobile.apply_status(false)
     if state.pending_screenshot then
         state.pending_screenshot = false
         run("sh", "-c", 'mkdir -p "$HOME/Pictures" && grim "$HOME/Pictures/Screenshot-$(date +%Y%m%d-%H%M%S).png"')
@@ -448,7 +452,7 @@ local function control_act(action, data)
     elseif action == "mobile.control.refresh" then
         read_status()
         if control then control_show(control_settings()) end
-        mobile.apply_status(control ~= nil)
+        mobile.apply_status()
     elseif action == "mobile.control.closed" then control_gone()
     elseif action == "mobile.control.close" then control_settle(0, 0)
     elseif action == "mobile.control.brightness" then
@@ -700,8 +704,6 @@ function mobile.apply(motion)
         statusHeight = config.status, navigationHeight = config.navigation, homeRequest = home_serial,
         shadeBackground = state.previous, brightness = state.settings.brightness,
         darkAppearance = state.settings.dark, reduceMotion = state.settings.reduceMotion,
-        battery = device().battery, charging = device().charging, wifiLinked = status.linked,
-        statusHidden = control ~= nil,
     }
     -- The icon grid is drawn below windows, so a window dragged home stays in
     -- front of it; the rest of the shell is drawn above them.
@@ -718,6 +720,8 @@ function mobile.apply(motion)
         reserve = { top = config.status, bottom = config.navigation },
         properties = chrome,
     })
+    -- Declared after the chrome, so it is drawn above it.
+    mobile.apply_status()
     -- The grab keeps keys and clicks on real Recents thumbnails from leaking
     -- into their clients. Home needs none: its windows are drawn at opacity
     -- zero, which owns no pixel, and the icon grid below the windows is only
@@ -1112,10 +1116,11 @@ local function release(e,cancelled)
         g.kind,vx,vy,g.k.ax,g.k.ay,tostring(cancelled)))
     if g.kind=="control" then
         -- Open past a third of the way or flung down; shut when flung up.
-        local _,area=dimensions()
-        local p=(e.y-g.y)/(area.h*0.42)
-        local pv=vy/(area.h*0.42)
-        local open=not cancelled and pv>-1.2 and (p>0.3 or pv>1.2)
+        local _,_,tablet=dimensions()
+        local travel=control_travel(tablet)
+        local p=(e.y-g.y)/travel
+        local pv=vy/travel
+        local open=not cancelled and pv>-1.5 and (p>0.35 or pv>1.5)
         control_settle(open and 1 or 0,pv)
         return
     end
@@ -1246,8 +1251,8 @@ sol.on("touch",function(e)
             g.k:sample(e.time,e.x,e.y)
             if g.kind=="home-swipe" then finger(e);return end
             if g.kind=="control" then
-                local _,area=dimensions()
-                control_drag((e.y-g.y)/(area.h*0.42));finger(e);return
+                local _,_,tablet=dimensions()
+                control_drag((e.y-g.y)/control_travel(tablet));finger(e);return
             end
             local _,area=dimensions()
             if g.kind=="navigation" then

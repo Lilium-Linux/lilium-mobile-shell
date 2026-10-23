@@ -37,12 +37,6 @@ Item {
     property bool darkAppearance: false
     property bool reduceMotion: false
     property date now: new Date()
-    // The status bar's Wi-Fi and battery (policy.lua's `device` and its
-    // background status); hidden while the Control Center carries its copy.
-    property int battery: -1
-    property bool charging: false
-    property bool wifiLinked: false
-    property bool statusHidden: false
     property var installed: []
     property int homeRequest: 0
     property var iconItems: []
@@ -223,11 +217,8 @@ Item {
                 anchors { left: parent.left; leftMargin: 24; verticalCenter: parent.verticalCenter }
                 text: Qt.formatTime(root.now, "h:mm"); color: "white"; font { pixelSize: 13; weight: Font.DemiBold }
             }
-            StatusCluster {
-                anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
-                battery: root.battery; charging: root.charging; wifi: root.wifiLinked
-                visible: !root.statusHidden
-            }
+            // The Wi-Fi and battery on the right are the Control Center's
+            // (ControlCenter.qml): drawn above this bar, they go with it.
             MouseArea {
                 anchors.fill: parent
                 onClicked: root.send("shade")
