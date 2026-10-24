@@ -39,6 +39,19 @@ Item {
     property bool reduceMotion: false
     property var installed: []
     property int homeRequest: 0
+    // The policy's hold timer (policy.lua, hold_arm): a swipe up held still
+    // opens Recents while the finger is down, and a finger at rest sends no
+    // events, so this says when `ms` have passed since `token` was armed.
+    property var hold: ({ token: 0, ms: 0 })
+    onHoldChanged: {
+        if (home) return
+        if (hold && hold.token > 0 && hold.ms > 0) {
+            holdTimer.token = hold.token
+            holdTimer.interval = hold.ms
+            holdTimer.restart()
+        } else holdTimer.stop()
+    }
+    Timer { id: holdTimer; property int token: 0; onTriggered: root.send("hold", { token: token }) }
     property var iconItems: []
     function registerIcon(tile) { iconItems.push(tile); Qt.callLater(reportIcons) }
     function unregisterIcon(tile) { iconItems = iconItems.filter(item => item !== tile) }

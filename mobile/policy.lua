@@ -806,7 +806,9 @@ function mobile.home()
     mobile.apply()
 end
 
-function mobile.recents()
+-- `motion`, when given, is how the windows go into their cards: a swipe held
+-- still hands over its spring.
+function mobile.recents(motion)
     end_flight()
     home_exit=nil
     fading = {}
@@ -815,7 +817,7 @@ function mobile.recents()
     reset_swipe()
     if state.page ~= "recents" and state.page ~= "shade" then state.previous = state.page end
     state.page = "recents"; state.picker = 0
-    mobile.apply()
+    mobile.apply(type(motion) == "table" and motion or nil)
 end
 
 function mobile.back()
@@ -1137,9 +1139,67 @@ local function finger(e)
             vx=k and k.vx or 0,vy=k and k.vy or 0,ax=k and k.ax or 0,ay=k and k.ay or 0,
             phase=gesture and gesture.kind or "client/control"}})
 end
+-- The swipe up held still opens Recents while the finger is down, as on an
+-- Android phone (config.hold): past the commit distance, within `slop`
+-- pixels and under `speed` for `ms`. A finger that rests sends no events, so
+-- the chrome scene's timer (Shell.qml, `hold`) says when the time is up; the
+-- motion events that do come say so too. `g.still` is where and when the
+-- finger last came to rest.
+local hold=config.hold or {ms=200,speed=150,slop=16}
+local hold_serial=0
+local function hold_arm(g,now,ms)
+    hold_serial=hold_serial+1
+    g.hold_token,g.armed_at,g.armed_ms=hold_serial,now,ms
+    chrome_update({hold={token=hold_serial,ms=math.max(1,math.floor(ms+0.5))}})
+end
+local function event_time(e) return e.t or e.time/1000 end
+-- Whether the finger has been still long enough, from a motion event at
+-- progress `p` (in travels).
+local function hold_track(g,e,p)
+    local now=event_time(e)
+    g.last_t=now
+    if p<touch_config.commit then g.still=nil;return false end
+    local s=g.still
+    local speed=math.sqrt(g.k.vx*g.k.vx+g.k.vy*g.k.vy)
+    if not s or speed>hold.speed or math.abs(e.x-s.x)>hold.slop or math.abs(e.y-s.y)>hold.slop then
+        g.still={x=e.x,y=e.y,t=now}
+        if not g.hold_token then hold_arm(g,now,hold.ms) end
+        return false
+    end
+    return (now-s.t)*1000>=hold.ms
+end
+-- Recents, now: the dragged window goes into its card from under the
+-- finger, and letting go does nothing more.
+local function hold_now(g)
+    sol.log(string.format("TOUCH_HOLD kind=%s",g.kind))
+    g.hold_token=nil
+    if g.kind=="navigation" then
+        nav=nil
+        mobile.recents(K.spring(0,1,touch_spring))
+    else
+        mobile.recents()
+    end
+    g.kind="held"
+end
+local function hold_fired(token)
+    local g=gesture
+    if not g or not token or g.hold_token~=token then return end
+    g.hold_token=nil
+    if not g.still then return end -- back under the commit distance: re-armed when past it again
+    local now=math.max(g.armed_at+g.armed_ms/1000,g.last_t or 0)
+    local waited=(now-g.still.t)*1000
+    if waited>=hold.ms-1 then hold_now(g) else hold_arm(g,now,hold.ms-waited) end
+end
+sol.on("surface",function(surface,action,data)
+    if surface=="mobile-shell" and action=="mobile.hold" and type(data)=="table" then
+        hold_fired(math.tointeger(tonumber(data.token)))
+    end
+end)
+
 local function release(e,cancelled)
     local g=gesture
     if not g then return end
+    if g.kind=="held" then return end -- Recents is already open
     local vx,vy=g.k:release(e.time)
     vx=math.max(-touch_config.max_release_speed,math.min(touch_config.max_release_speed,vx))
     vy=math.max(-touch_config.max_release_speed,math.min(touch_config.max_release_speed,vy))
@@ -1280,7 +1340,7 @@ sol.on("touch",function(e)
         elseif at_top and not control and sol.lock_peek and state.page~="recents" and state.page~="shade" then kind="lock"
         elseif state.page=="app" and at_handle then kind="navigation"
         -- From the home screen the same swipe, held, opens Recents; there is
-        -- no window to follow, so nothing moves until it is let go.
+        -- no window to follow, so nothing moves until it rests or is let go.
         elseif (state.page=="home" or state.page=="apps") and at_handle then kind="home-swipe"
         elseif state.page=="recents" and not e.control and not dock and e.y>=area.y and e.y<area.y+area.h then kind="recents" end
         if kind then
@@ -1304,7 +1364,12 @@ sol.on("touch",function(e)
         if e.kind=="motion" then
             local g=gesture
             g.k:sample(e.time,e.x,e.y)
-            if g.kind=="home-swipe" then finger(e);return end
+            if g.kind=="held" then finger(e);return end
+            if g.kind=="home-swipe" then
+                local _,area=dimensions()
+                if hold_track(g,e,(g.y-e.y)/(area.h*touch_config.travel)) then hold_now(g) end
+                finger(e);return
+            end
             if g.kind=="control" then
                 local _,_,tablet=dimensions()
                 control_drag((e.y-g.y)/control_travel(tablet),e.x-g.x);finger(e);return
@@ -1321,6 +1386,10 @@ sol.on("touch",function(e)
                 nav.p=nav.raw
                 if nav.raw<0 then nav.p=nav.raw*touch_config.elastic
                 elseif nav.raw>1 then nav.p=1+(nav.raw-1)*touch_config.elastic end
+                if hold_track(g,e,nav.raw) then
+                    -- Drawn where the finger has it first, then into its card.
+                    mobile.apply({duration=0});hold_now(g);finger(e);return
+                end
             else
                 local dx,dy=e.x-g.x,e.y-g.y
                 if math.abs(dy)>math.abs(dx) and dy<0 then swipe.lift=dy;swipe.offset=0

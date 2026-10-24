@@ -9,4 +9,9 @@ return {
     navigation = 0, -- Temporary Surface test: no navigation bar or reserved strip.
     motion = { duration = 420, easing = "outCubic" },
     quick = { duration = 180, easing = "outCubic" },
+    -- The swipe up from the bottom, held: once the finger is past the commit
+    -- distance and has stayed within `slop` logical pixels, never faster than
+    -- `speed` pixels a second, for `ms` milliseconds, Recents opens while the
+    -- finger is still down, as on an Android phone. A flick never holds.
+    hold = { ms = 200, speed = 150, slop = 16 },
 }
