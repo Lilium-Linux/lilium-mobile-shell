@@ -15,14 +15,27 @@ Community: [Solium on Discord](https://discord.gg/ATQNfHHvFa).
 - **Home screen:** every installed application in a paged grid, with a dock
   and a status bar. Opening an app grows its window out of its icon, as on an
   iPad (`effects/mobile-flight`).
-- **Gestures** (`mobile/policy.lua`, `kinetics.lua`):
+- **Gestures** (`mobile/policy.lua`, `kinetics.lua`), as on an Android phone
+  with gesture navigation; their thresholds are in `mobile/config.lua`:
   - A swipe up from the bottom centre, let go quickly, goes home; the window
     follows the finger into its icon.
-  - The same swipe, held, opens Recents, from an app or from the home screen.
+  - The same swipe, held still for a moment, opens Recents while the finger
+    is still down, from an app or from the home screen.
+  - A swipe inward from the left or right edge goes back, with Android's
+    bubble and chevron at the finger. In an app it sends back to the app: the
+    mouse's side button, which browsers, file managers and viewers read as
+    back, or Escape to an Android app shown by droidloom. On the home screen
+    and in Recents it is the shell's own back. Sending it needs `sol.press`,
+    which is on its way into Solium; without it the bubble shows and nothing
+    is sent.
+- **Gesture bar:** a short pill at the bottom of each app's window, which
+  shows where the swipe up starts (`qml/panes/mobile/GestureBar.qml`). It
+  fades with the swipe and is not drawn on Recents' cards.
 - **Recents:** the open windows as cards with rounded corners and a shadow
   (`effects/mobile-card`). Tap one to open it, flick it up to close it.
 - **Control Center** (`qml/mobile/ControlCenter.qml`): pulled down from the
-  right of the top edge, following the finger, as on an iPad. Wi-Fi,
+  right of the top edge, following the finger, as on an iPad. A pull while it
+  is still opening or closing takes it where it is. Wi-Fi,
   Bluetooth, airplane mode, brightness, volume, now playing, split screen,
   appearance and a screenshot. The status bar's clock fades out and its Wi-Fi
   and battery move into the panel as it comes down.
