@@ -1,4 +1,4 @@
-# Lilium Mobile
+# Lilium Mobile shell
 
 A phone and tablet shell for [Solium](https://github.com/Lilium-Linux/solium),
 the Wayland compositor. It is a Solium configuration: Lua policy, QML scenes
@@ -7,6 +7,10 @@ a Surface Pro 7 in tablet mode, and in a nested Solium on the desktop.
 
 **Early preview.** It runs every day on that Surface, but it is young. Read
 [What is missing](#what-is-missing) before you put it on a device you rely on.
+
+It is one part of Lilium Mobile: the environment as a whole (install,
+packaging, setup) is [lilium-mobile](https://github.com/Lilium-Linux/lilium-mobile),
+and its own applications are [lilium-apps](https://github.com/Lilium-Linux/lilium-apps).
 
 Community: [Solium on Discord](https://discord.gg/ATQNfHHvFa).
 
@@ -41,7 +45,9 @@ Community: [Solium on Discord](https://discord.gg/ATQNfHHvFa).
   and battery move into the panel as it comes down.
 - **Lock:** pulled down from the left of the top edge, the clock side. Solium's
   own lock screen follows the finger and locks when you let go past a third of
-  the screen. You unlock with your account password.
+  the screen. You unlock with your account password, or with a PIN after
+  `solium pin set`; Solium asks for the password again after a restart, after
+  too many wrong PINs, and every 48 hours by default.
 - **Apps put away:** an app you leave is minimized: it holds no keyboard and
   is not drawn, and Recents still shows it.
 - **Icons:** the [WhiteSur](https://github.com/vinceliuice/WhiteSur-icon-theme)
@@ -53,9 +59,10 @@ Community: [Solium on Discord](https://discord.gg/ATQNfHHvFa).
 
 ## What you need
 
-- **Solium, built from its `stage` branch.** The lock, minimizing and the
-  frame-pacing fix need Solium changes that are on their way into `stage`.
-  On an older Solium the shell still runs, without those features.
+- **Solium, built from its `stage` branch.** The lock, the PIN, minimizing
+  and the frame-pacing fix are there. Sending back from the back swipe needs
+  `sol.press`, which is on its way into `stage`. On an older Solium the shell
+  still runs, without those features.
 - **For the Control Center's controls:** NetworkManager (`nmcli`), BlueZ
   (`bluetoothctl`), PipeWire (`wpctl`), `playerctl`, and `grim` for
   screenshots.
@@ -93,9 +100,8 @@ Settings live in `mobile/config.lua`. Some environment variables help too:
 ## What is missing
 
 - **No on-screen keyboard.** Without a keyboard attached you cannot type,
-  including your password at the lock (unless it is all digits).
+  except at the lock with a PIN or an all-digit password.
 - **No screen rotation.**
-- **No PIN** for the lock. The account password is the only way in.
 - The Control Center is still being tuned against the iPad's.
 
 ## Developing
