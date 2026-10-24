@@ -13,7 +13,7 @@ local K = require("kinetics")
 local lock_pull = { commit = 0.33, fling = 1.2 }
 
 local touch_config = { edge=36, travel=0.45, commit=0.34, fling=1000,
-    deceleration=2400, window_ms=80, stale_ms=100, handle_width=52, elastic=0.18, home_progress=1.2, max_release_speed=4000,
+    deceleration=2400, window_ms=80, stale_ms=100, elastic=0.18, home_progress=1.2, max_release_speed=4000,
     stiffness=300, damping=25, mass=1, tap=8 }
 local pending_launch
 local card_slots = {}
@@ -76,6 +76,10 @@ local function spring(settings, velocity)
     return { easing = { spring = { stiffness = settings.stiffness / (pace * pace),
         damping = settings.damping / pace, initial_velocity = velocity or 0 } } }
 end
+-- The gesture bar (config.bar): how long it is drawn, and how wide the strip
+-- at the bottom centre is that the swipe up starts from, which covers it.
+local bar_config = config.bar or { width = 134, phone_width = 108, reach = 24 }
+local function bar_width(tablet) return tablet and bar_config.width or bar_config.phone_width end
 local launcher_icons = state.launcher_icons
 state.settings = state.settings or { brightness = 1, dark = false, reduceMotion = false }
 local pages = { home = true, apps = true, recents = true, app = true, shade = true }
@@ -612,7 +616,16 @@ function mobile.apply(motion)
         sol.pane(wanted_style)
     end
     local card_w = card_metrics(area, tablet)
-    sol.pane_values({ mobilePage = state.page, mobileHeaderScale = math.min(2.4, math.max(1, area.w / card_w * 0.8)) })
+    -- The gesture bar on an application's window (panes/mobile/GestureBar.qml):
+    -- shown on an application, gone in Recents and on the home screen, and
+    -- faded out by the first part of the swipe up. Not in split screen, where
+    -- the swipe starts between the two windows rather than under either's bar.
+    local bar = 0
+    if content_page == "app" and #state.split ~= 2 then
+        bar = nav and math.max(0, math.min(1, 1 - nav.p / 0.15)) or 1
+    end
+    sol.pane_values({ mobilePage = state.page, mobileHeaderScale = math.min(2.4, math.max(1, area.w / card_w * 0.8)),
+        mobileBar = bar, mobileBarWidth = bar_width(tablet) })
     card_slots = {}
     local focused_index = 1
     for index, window in ipairs(ordered) do
@@ -1384,7 +1397,7 @@ sol.on("touch",function(e)
             and e.y>=area.y+area.h-106 and e.y<=area.y+area.h-14
         local kind
         local at_handle=e.y>=whole.y+whole.h-touch_config.edge
-            and math.abs(e.x-(whole.x+whole.w/2))<=touch_config.handle_width/2
+            and math.abs(e.x-(whole.x+whole.w/2))<=bar_width(tablet)/2+bar_config.reach
         -- The top edge's right half pulls the Control Center down, from any
         -- page but Recents; while it is still opening or closing, or open,
         -- the finger takes it where it is.

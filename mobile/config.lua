@@ -21,4 +21,9 @@ return {
     -- `fling_min` pixels. Flung back towards the edge faster than `retreat`
     -- pixels a second, it is cancelled.
     back = { edge = 24, band = 0.8, commit = 1 / 12, fling = 900, fling_min = 16, retreat = 300 },
+    -- The gesture bar at the bottom of an application's window, which shows
+    -- where the swipe up starts (qml/panes/mobile/GestureBar.qml): `width`
+    -- logical pixels long on a tablet, `phone_width` on a phone. The swipe
+    -- starts on it or within `reach` pixels to either side of it.
+    bar = { width = 134, phone_width = 108, reach = 24 },
 }
