@@ -14,4 +14,11 @@ return {
     -- `speed` pixels a second, for `ms` milliseconds, Recents opens while the
     -- finger is still down, as on an Android phone. A flick never holds.
     hold = { ms = 200, speed = 150, slop = 16 },
+    -- The back swipe, inward from the left or right edge of the screen in its
+    -- vertical middle `band` (80 %): it starts within `edge` logical pixels
+    -- of the edge, and goes back when let go past `commit` of the screen's
+    -- width, or flung inward faster than `fling` pixels a second once past
+    -- `fling_min` pixels. Flung back towards the edge faster than `retreat`
+    -- pixels a second, it is cancelled.
+    back = { edge = 24, band = 0.8, commit = 1 / 12, fling = 900, fling_min = 16, retreat = 300 },
 }

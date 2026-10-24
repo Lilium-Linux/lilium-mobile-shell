@@ -52,6 +52,8 @@ Item {
         } else holdTimer.stop()
     }
     Timer { id: holdTimer; property int token: 0; onTriggered: root.send("hold", { token: token }) }
+    // The back swipe, for BackIndicator.qml.
+    property var back: ({})
     property var iconItems: []
     function registerIcon(tile) { iconItems.push(tile); Qt.callLater(reportIcons) }
     function unregisterIcon(tile) { iconItems = iconItems.filter(item => item !== tile) }
@@ -238,6 +240,8 @@ Item {
             anchors.fill: parent; color: "black"; opacity: (1 - root.brightness) * 0.7
             // Visual dimming only; no input item, so it never intercepts a client.
         }
+        // The back swipe's bubble (policy.lua, back_show); it takes no input.
+        BackIndicator { anchors.fill: parent; back: root.back }
         Rectangle {
             id: navigation
             visible: root.navigationHeight > 0

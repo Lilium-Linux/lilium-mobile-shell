@@ -1196,6 +1196,53 @@ sol.on("surface",function(surface,action,data)
     end
 end)
 
+-- The back swipe (config.back), inward from the left or right edge, as on an
+-- Android phone: the chrome scene draws its bubble (BackIndicator.qml) from
+-- what `back_show` hands it, and a release past the threshold goes back.
+local back_config=config.back or {edge=24,band=0.8,commit=1/12,fling=900,fling_min=16,retreat=300}
+local back_serial=0
+-- Inward pixels since the finger went down, and the inward speed.
+local function back_inward(g,x,vx)
+    local sign=g.side=="left" and 1 or -1
+    return math.max(0,sign*(x-g.x)),sign*(vx or 0)
+end
+local function back_show(g,e,outcome)
+    local whole=dimensions()
+    local pull=back_inward(g,e.x)
+    local commit=whole.w*back_config.commit
+    chrome_update({back={serial=g.serial,active=outcome==nil,outcome=outcome or "",side=g.side,
+        y=e.y-whole.y,pull=pull,commit=commit}})
+end
+-- The window back goes to: the focused one on screen, either of a split.
+local function back_window()
+    local _,by_id=windows()
+    for _,id in ipairs(state.split) do
+        if by_id[id] and by_id[id].focused then return by_id[id] end
+    end
+    return by_id[state.active]
+end
+-- What program a window's client is: its process's name, one small read.
+local function program_of(window)
+    local pid=window and math.tointeger(tonumber(window.pid))
+    if not pid then return nil end
+    return ((read_file("/proc/"..pid.."/comm") or ""):gsub("%s+$",""))
+end
+-- Back: in an application, what back is there. An Android application,
+-- shown by droidloom's presenter, takes Escape as its back; every other
+-- application takes the mouse's side button (button 4), which browsers, file
+-- managers and viewers read as back. On the home screen and in Recents, the
+-- shell's own back. Only with `sol.press`, which an older Solium lacks: then
+-- the bubble shows and nothing is sent.
+local function go_back()
+    if state.page~="app" then mobile.back();return end
+    local window=back_window()
+    if not window then return end
+    if not sol.press then sol.log("back: this Solium has no sol.press; nothing sent");return end
+    local spec=program_of(window)=="droidloom-wayland" and {key="Escape"} or {button="side"}
+    local ok,problem=pcall(sol.press,window.id,spec)
+    if not ok then sol.log("back: sol.press refused: "..tostring(problem)) end
+end
+
 local function release(e,cancelled)
     local g=gesture
     if not g then return end
@@ -1206,6 +1253,15 @@ local function release(e,cancelled)
     g.k.vx=vx;g.k.vy=vy
     sol.log(string.format("TOUCH_RELEASE kind=%s vx=%.2f vy=%.2f ax=%.2f ay=%.2f cancel=%s",
         g.kind,vx,vy,g.k.ax,g.k.ay,tostring(cancelled)))
+    if g.kind=="back" then
+        local whole=dimensions()
+        local pull,speed=back_inward(g,e.x,vx)
+        local go=not cancelled and speed>-back_config.retreat
+            and (pull>=whole.w*back_config.commit or (speed>=back_config.fling and pull>=back_config.fling_min))
+        back_show(g,e,go and "back" or "cancel")
+        if go then go_back() end
+        return
+    end
     if g.kind=="control" then
         -- Pulled from closed: open past a third of the way or flung down.
         -- Taken while open or on its way: pulled on down it opens, pushed
@@ -1342,12 +1398,21 @@ sol.on("touch",function(e)
         -- From the home screen the same swipe, held, opens Recents; there is
         -- no window to follow, so nothing moves until it rests or is let go.
         elseif (state.page=="home" or state.page=="apps") and at_handle then kind="home-swipe"
+        -- Either side edge, in the screen's vertical middle, swipes back.
+        elseif not control and not e.control and state.page~="shade" and back_config.edge>0
+            and (e.x<whole.x+back_config.edge or e.x>whole.x+whole.w-back_config.edge)
+            and math.abs(e.y-(whole.y+whole.h/2))<=whole.h*back_config.band/2 then kind="back"
         elseif state.page=="recents" and not e.control and not dock and e.y>=area.y and e.y<area.y+area.h then kind="recents" end
         if kind then
             sol.touch(e.slot,{action="capture"})
             gesture={slot=e.slot,kind=kind,x=e.x,y=e.y,k=K.new(touch_config)}
             gesture.k:sample(e.time,e.x,e.y)
-            if kind=="control" then gesture.base=control and control_shown or 0;control_drag(0)
+            if kind=="back" then
+                back_serial=back_serial+1
+                gesture.serial=back_serial
+                gesture.side=e.x<whole.x+whole.w/2 and "left" or "right"
+                back_show(gesture,e,nil)
+            elseif kind=="control" then gesture.base=control and control_shown or 0;control_drag(0)
             elseif kind=="lock" then sol.lock_peek(0)
             elseif kind=="navigation" then nav={p=0,raw=0,x0=e.x,y0=e.y,fx=e.x,fy=e.y};mobile.apply({duration=0})
             else
@@ -1365,6 +1430,7 @@ sol.on("touch",function(e)
             local g=gesture
             g.k:sample(e.time,e.x,e.y)
             if g.kind=="held" then finger(e);return end
+            if g.kind=="back" then back_show(g,e,nil);finger(e);return end
             if g.kind=="home-swipe" then
                 local _,area=dimensions()
                 if hold_track(g,e,(g.y-e.y)/(area.h*touch_config.travel)) then hold_now(g) end

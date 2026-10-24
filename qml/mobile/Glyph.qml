@@ -55,6 +55,8 @@ Item {
                     previous: "M 12 6 L 12 18 L 4 12 Z M 20 6 L 20 18 L 12 12 Z",
                     next: "M 12 6 L 12 18 L 20 12 Z M 4 6 L 4 18 L 12 12 Z",
                     note: "M 9 17.5 L 9 6 L 19 4 L 19 15.5 M 9 17.5 A 2.5 2 0 1 1 8.99 17.5 M 19 15.5 A 2.5 2 0 1 1 18.99 15.5",
+                    // A chevron pointing left: back.
+                    chevron: "M 14.5 5 L 7.5 12 L 14.5 19",
                     // A circular arrow: reload.
                     reload: "M 19 12 A 7 7 0 1 1 16.5 6.6 M 17 3 L 17 7 L 13 7",
                 })[glyph.name] || ""

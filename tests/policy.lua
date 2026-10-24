@@ -82,4 +82,28 @@ event('down',600,798,3000);event('motion',600,720,3030);event('motion',600,600,3
 assert(kept.page=='home','a flick still goes home')
 handlers.surface('mobile-shell','mobile.hold',{token=hold.token})
 assert(kept.page=='home','a timer from a finished swipe does nothing')
-print('PASS: tablet grid, momentum, cancellation, dock controls, home icon destination, hold for Recents')
+-- The back swipe: from the left edge in an application, past a twelfth of
+-- the width, the side button; short, nothing; an Android application gets
+-- Escape; on the home screen the shell's own back; without sol.press the
+-- bubble still shows and nothing fails.
+mobile.select(1)
+local pressed={}
+sol.press=function(id,spec) pressed[#pressed+1]={id=id,spec=spec} end
+event('down',4,400,4000);event('motion',60,402,4040);event('motion',140,404,4080);event('up',140,404,4081)
+assert(#pressed==1 and pressed[1].id==1 and pressed[1].spec.button=='side','a back swipe past the threshold presses the side button')
+assert(kept.page=='app')
+event('down',1196,400,4200);event('motion',1170,400,4300);event('motion',1150,400,4400);event('up',1150,400,4401)
+assert(#pressed==1,'a back swipe let go short sends nothing')
+clients[1].pid=4242
+local real_open=io.open
+io.open=function(path,...) if path=='/proc/4242/comm' then return {read=function() return 'droidloom-wayland\n' end,close=function() end} end return real_open(path,...) end
+event('down',1196,400,4600);event('motion',1100,400,4640);event('motion',1000,400,4680);event('up',1000,400,4681)
+io.open=real_open
+assert(#pressed==2 and pressed[2].spec.key=='Escape','an Android application gets Escape')
+sol.press=nil
+event('down',4,400,5000);event('motion',140,400,5080);event('up',140,400,5081)
+assert(kept.page=='app','without sol.press a back swipe changes nothing and does not fail')
+mobile.recents()
+event('down',4,400,5200);event('motion',140,400,5280);event('up',140,400,5281)
+assert(kept.page=='app','in Recents a back swipe is the shell\'s own back')
+print('PASS: tablet grid, momentum, cancellation, dock controls, home icon destination, hold for Recents, back swipe')
