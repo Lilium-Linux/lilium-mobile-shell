@@ -209,6 +209,9 @@ end
 local control = nil
 local control_release = 0
 local control_amount = -1
+-- Where the sheet is, 0 closed to 1 open, as the scene last reported it: what
+-- a finger that takes it while it moves takes it at.
+local control_shown = 0
 local control_panel = { x = 0.7, y = 0, w = 0.3, h = 1, soft = 0.2 }
 
 -- Every effects setting the shell gives: the folders its presents name, the
@@ -403,12 +406,14 @@ local function control_begin()
     control_show(properties)
 end
 
--- The finger pulling it down: `progress` 0 closed to 1 open, rubber-banded
--- past 1, and `dx` pixels sideways since it went down.
+-- The finger pulling it: `progress` is how far it has gone since it went
+-- down, in travels, negative when pushed back up, and `dx` pixels sideways.
+-- The scene adds it to where the sheet was when the finger took it, so a
+-- sheet taken while it opens or closes moves on from there, and
+-- rubber-bands it past open.
 local function control_drag(progress, dx)
     control_begin()
-    local shown = progress <= 1 and progress or 1 + (progress - 1) * 0.25
-    control_show({ dragging = true, progress = math.max(0, shown), fingerDx = dx or 0 })
+    control_show({ dragging = true, progress = progress, fingerDx = dx or 0 })
 end
 
 -- Let go, or tapped open: the scene's spring takes it to `target` from
@@ -426,6 +431,7 @@ function mobile.control_open() control_settle(1, 0) end
 local function control_gone()
     control = nil
     control_amount = -1
+    control_shown = 0
     shell_effects(0)
     if state.pending_screenshot then
         state.pending_screenshot = false
@@ -453,6 +459,7 @@ local function control_act(action, data)
     if action == "mobile.control.progress" then
         -- The blur follows the scene's own progress, in 64 steps.
         local amount = math.floor(math.max(0, math.min(1, tonumber(data.value) or 0)) * 64 + 0.5) / 64
+        control_shown = math.max(0, math.min(1, tonumber(data.shown) or control_shown))
         if control and amount ~= control_amount then control_amount = amount; shell_effects(amount) end
     elseif action == "mobile.control.geometry" then
         control_panel = { x = tonumber(data.x) or 0.7, y = tonumber(data.y) or 0,
@@ -1140,12 +1147,19 @@ local function release(e,cancelled)
     sol.log(string.format("TOUCH_RELEASE kind=%s vx=%.2f vy=%.2f ax=%.2f ay=%.2f cancel=%s",
         g.kind,vx,vy,g.k.ax,g.k.ay,tostring(cancelled)))
     if g.kind=="control" then
-        -- Open past a third of the way or flung down; shut when flung up.
+        -- Pulled from closed: open past a third of the way or flung down.
+        -- Taken while open or on its way: pulled on down it opens, pushed
+        -- back up it shuts once under two thirds, and a tap shuts it, as a
+        -- tap anywhere else on it does. Shut when flung up either way.
         local _,_,tablet=dimensions()
         local travel=control_travel(tablet)
-        local p=(e.y-g.y)/travel
+        local p=g.base+(e.y-g.y)/travel
         local pv=vy/travel
-        local open=not cancelled and pv>-1.5 and (p>0.35 or pv>1.5)
+        local tapped=math.abs(e.x-g.x)<touch_config.tap and math.abs(e.y-g.y)<touch_config.tap
+        local open
+        if cancelled or (tapped and g.base>0) then open=false
+        elseif g.base>0 then open=pv>-1.0 and (p>=g.base or p>=0.65 or pv>1.5)
+        else open=pv>-1.5 and (p>0.35 or pv>1.5) end
         control_settle(open and 1 or 0,pv)
         return
     end
@@ -1256,10 +1270,11 @@ sol.on("touch",function(e)
         local at_handle=e.y>=whole.y+whole.h-touch_config.edge
             and math.abs(e.x-(whole.x+whole.w/2))<=touch_config.handle_width/2
         -- The top edge's right half pulls the Control Center down, from any
-        -- page but Recents.
+        -- page but Recents; while it is still opening or closing, or open,
+        -- the finger takes it where it is.
         local at_top=e.y<whole.y+math.max(24,config.status)
         local at_corner=at_top and e.x>whole.x+whole.w*0.55
-        if at_corner and not control and state.page~="recents" and state.page~="shade" then kind="control"
+        if at_corner and state.page~="recents" and state.page~="shade" then kind="control"
         -- The rest of the top edge, the clock's side, pulls the lock down
         -- with the finger, as an iPhone's does.
         elseif at_top and not control and sol.lock_peek and state.page~="recents" and state.page~="shade" then kind="lock"
@@ -1272,7 +1287,7 @@ sol.on("touch",function(e)
             sol.touch(e.slot,{action="capture"})
             gesture={slot=e.slot,kind=kind,x=e.x,y=e.y,k=K.new(touch_config)}
             gesture.k:sample(e.time,e.x,e.y)
-            if kind=="control" then control_drag(0)
+            if kind=="control" then gesture.base=control and control_shown or 0;control_drag(0)
             elseif kind=="lock" then sol.lock_peek(0)
             elseif kind=="navigation" then nav={p=0,raw=0,x0=e.x,y0=e.y,fx=e.x,fy=e.y};mobile.apply({duration=0})
             else

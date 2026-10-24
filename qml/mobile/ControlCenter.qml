@@ -18,7 +18,7 @@ Item {
     id: root
 
     // ---- From the policy (mobile/policy.lua) ------------------------------
-    property real progress: 0          // the finger's, while `dragging`
+    property real progress: 0          // the finger's travel since it went down, while `dragging`
     property bool dragging: false
     property real target: 0            // where to settle once let go: 0 or 1
     property real releaseVelocity: 0   // progress per second at the release
@@ -92,15 +92,29 @@ Item {
     // or closed with the panel's tap-anywhere-to-close still taking presses.
     // A finger already being followed is followed at once, so it is never a
     // frame behind.
-    onProgressChanged: if (dragging && following) track(progress); else Qt.callLater(follow)
+    onProgressChanged: if (dragging && following) track(fingered(progress)); else Qt.callLater(follow)
     onDraggingChanged: Qt.callLater(follow)
     onReleaseChanged: Qt.callLater(released)
     property int settledRelease: 0
     property bool following: false
+    // Where the sheet was when the finger took it: a pull while it is still
+    // opening or closing, or open, moves it on from there instead of from
+    // closed, so nothing jumps. Past open it gives only a quarter (rubber
+    // band).
+    property real grabbedAt: 0
+    function fingered(travelled) {
+        const value = grabbedAt + travelled
+        return Math.max(0, value <= 1 ? value : 1 + (value - 1) * 0.25)
+    }
     function follow() {
         if (!dragging) { following = false; return }
-        if (!following) { following = true; spring.running = false; refreshTimer.restart() }
-        track(progress)
+        if (!following) {
+            following = true
+            spring.running = false
+            grabbedAt = Math.max(0, Math.min(1, shown))
+            refreshTimer.restart()
+        }
+        track(fingered(progress))
     }
     function released() {
         if (release === settledRelease) return
@@ -144,8 +158,9 @@ Item {
         }
     }
 
-    // The blur follows the dim.
-    function report() { send("progress", { value: dim }) }
+    // The blur follows the dim; the policy keeps where the sheet is, for the
+    // next finger that takes it.
+    function report() { send("progress", { value: dim, shown: shown }) }
     function settled() {
         if (target !== 0) return
         armed = false
@@ -207,13 +222,22 @@ Item {
         property real lastTime: 0
         property real velocity: 0
         property bool pushing: false
+        // Where the push took the sheet, and the finger then: pushed while it
+        // is still opening, it goes on from where it was.
+        property real pushedFrom: 1
+        property real pushY: 0
         onPressed: mouse => { startY = lastY = mouse.y; lastTime = Date.now(); velocity = 0; pushing = false }
         onPositionChanged: mouse => {
             const now = Date.now()
             if (now > lastTime) velocity = (mouse.y - lastY) / ((now - lastTime) / 1000) / root.travel
             lastY = mouse.y; lastTime = now
-            if (!pushing && startY - mouse.y > 10) { pushing = true; spring.running = false }
-            if (pushing) root.track(Math.max(0, Math.min(1, 1 - (startY - mouse.y) / root.travel)))
+            if (!pushing && startY - mouse.y > 10) {
+                pushing = true
+                spring.running = false
+                pushedFrom = Math.min(1, root.shown)
+                pushY = mouse.y
+            }
+            if (pushing) root.track(Math.max(0, Math.min(1, pushedFrom - (pushY - mouse.y) / root.travel)))
         }
         onReleased: {
             if (!pushing) { root.settle(0, 0); return }
