@@ -474,10 +474,15 @@ Item {
                 icon: "sun"; tint: "#ff9f0a"; label: "Brightness"; value: root.brightness
                 onMoved: v => root.send("brightness", { value: v })
             }
+            // Solium's own Audio when it has it (#347): live, and coalesced
+            // there, so the slider may write on every move. Else the policy's
+            // `wpctl`.
             Pill {
+                readonly property bool live: typeof Audio !== "undefined" && Audio.available && Audio.output.present
                 x: panel.at(3); y: panel.at(2); width: panel.c; height: 2 * panel.c + panel.g
-                icon: "volume"; tint: "#0a84ff"; label: "Volume"; value: root.volume
-                onMoved: v => root.send("volume", { value: v })
+                icon: "volume"; tint: "#0a84ff"; label: "Volume"
+                value: live ? Audio.output.volume : root.volume
+                onMoved: v => live ? Audio.output.setVolume(v) : root.send("volume", { value: v })
             }
             // Appearance, wide, as the iPad's Focus.
             Frost {
@@ -500,6 +505,15 @@ Item {
             Round { x: 0; y: panel.at(4); icon: "home"; label: "Home"; onTriggered: root.send("home") }
             Round { x: panel.at(1); y: panel.at(4); icon: "camera"; label: "Screenshot"; onTriggered: root.send("screenshot") }
             Round { x: panel.at(2); y: panel.at(4); icon: "reload"; label: "Reload the shell"; onTriggered: root.send("reload") }
+            // Do not disturb: only critical notifications get a banner, the
+            // rest go straight to the lock sheet's list. Solium's own switch.
+            Round {
+                readonly property bool known: typeof Notifications !== "undefined"
+                x: panel.at(3); y: panel.at(4); icon: "bell-off"; label: "Do not disturb"
+                accent: "#5e5ce6"; on: known && Notifications.dnd
+                enabled: known && Notifications.available; opacity: enabled ? 1 : 0.4
+                onTriggered: Notifications.setDnd(!Notifications.dnd)
+            }
         }
     }
 }

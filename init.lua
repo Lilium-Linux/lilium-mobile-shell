@@ -9,6 +9,20 @@ sol.pane(require("mobile.config").pane or "mobile-flat")
 sol.loading({ scene = "mobile", decorated = true, reserves_a_slot = true, fade = 160, patience = 10000 })
 sol.auto_reload({ automatic = false })
 sol.focus_mode({ click = true, follow = false, clear_on_empty_click = false, after_close = {} })
+-- Notifications: Solium serves them, and the shell draws them as banners
+-- under the status bar (mobile/Banners.qml) and as a list on the lock sheet.
+-- Declared first, so the banners are over the rest of the shell. A Solium
+-- without `sol.notifications` (#346) has neither.
+if sol.notifications then
+    local config = require("mobile.config")
+    sol.notifications({ serve = true })
+    sol.surface("mobile-banners", { scene = "mobile/Banners.qml", layer = "overlay", on = "primary",
+        interactive = true, properties = { statusTop = config.status, tablet = config.profile ~= "phone" } })
+end
+-- Audio from PipeWire itself (#347), for the Control Center's slider.
+if sol.audio then
+    sol.audio({})
+end
 local mobile = require("mobile.policy")
 mobile.apply()
 
