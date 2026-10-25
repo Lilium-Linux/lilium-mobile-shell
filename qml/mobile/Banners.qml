@@ -87,6 +87,7 @@ Item {
                         Text {
                             width: parent.width - when.width
                             text: banner.model.summary
+                            textFormat: Text.PlainText
                             color: "white"
                             font { pixelSize: 15; weight: Font.DemiBold }
                             elide: Text.ElideRight
@@ -114,6 +115,7 @@ Item {
                         width: parent.width
                         visible: banner.model.appName.length > 0
                         text: banner.model.appName
+                        textFormat: Text.PlainText
                         color: "#80ffffff"
                         font.pixelSize: 12
                         elide: Text.ElideRight
