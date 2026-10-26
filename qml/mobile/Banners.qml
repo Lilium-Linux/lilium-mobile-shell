@@ -122,21 +122,20 @@ Item {
                     }
                 }
 
-                // A finger or the pointer resting on it stops its time.
+                // A finger, the pointer or a pull resting on it stops its
+                // time. One state for all three: Solium's hold is a flag, not
+                // a count, so a press let go under a resting pointer must not
+                // release it.
+                readonly property bool holding: press.pressed || hover.hovered || drag.active
+                onHoldingChanged: {
+                    if (!banner.n) return
+                    if (holding) banner.n.hold(); else banner.n.release()
+                }
                 TapHandler {
                     id: press
-                    onPressedChanged: {
-                        if (!banner.n) return
-                        if (pressed) banner.n.hold(); else banner.n.release()
-                    }
                     onTapped: if (banner.n && banner.model.hasDefault) banner.n.invoke("default")
                 }
-                HoverHandler {
-                    onHoveredChanged: {
-                        if (!banner.n) return
-                        if (hovered) banner.n.hold(); else banner.n.release()
-                    }
-                }
+                HoverHandler { id: hover }
                 DragHandler {
                     id: drag
                     target: null
@@ -145,14 +144,8 @@ Item {
                     property real pulled: 0
                     onActiveTranslationChanged: if (active) pulled = activeTranslation.y
                     onActiveChanged: {
-                        if (!banner.n) return
-                        if (active) {
-                            banner.n.hold()
-                        } else if (pulled < -36 || centroid.velocity.y < -500) {
+                        if (banner.n && !active && (pulled < -36 || centroid.velocity.y < -500))
                             banner.n.dismiss()
-                        } else {
-                            banner.n.release()
-                        }
                     }
                 }
             }
