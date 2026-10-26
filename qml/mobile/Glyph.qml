@@ -57,6 +57,8 @@ Item {
                     note: "M 9 17.5 L 9 6 L 19 4 L 19 15.5 M 9 17.5 A 2.5 2 0 1 1 8.99 17.5 M 19 15.5 A 2.5 2 0 1 1 18.99 15.5",
                     // A chevron pointing left: back.
                     chevron: "M 14.5 5 L 7.5 12 L 14.5 19",
+                    // A bell, struck through: do not disturb.
+                    "bell-off": "M 6.5 16.5 L 6.5 11 A 5.5 5.5 0 0 1 17.5 11 L 17.5 16.5 L 19 18 L 5 18 Z M 10 20.5 A 2 2 0 0 0 14 20.5 M 4 4 L 20 20",
                     // A circular arrow: reload.
                     reload: "M 19 12 A 7 7 0 1 1 16.5 6.6 M 17 3 L 17 7 L 13 7",
                 })[glyph.name] || ""
